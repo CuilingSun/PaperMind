@@ -1,0 +1,350 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
+import ApiKeyModal from '@/components/ApiKeyModal';
+import PdfUpload from '@/components/PdfUpload';
+import ReportView from '@/components/ReportView';
+import ChatPanel from '@/components/ChatPanel';
+import NavHeader from '@/components/NavHeader';
+import HistoryList from '@/components/HistoryList';
+import { getHistory, removeHistory, clearHistory, addHistory, HistoryEntry } from '@/lib/history';
+import {
+  analyzePaper,
+  chatWithPaper,
+  parseSections,
+  SECTION_KEYS,
+  SectionKey,
+  ChatMessage,
+  Lang,
+} from '@/lib/gemini';
+import { parseFigureMap, stripFigureJson } from '@/lib/figureParser';
+
+const PdfViewer = dynamic(() => import('@/components/PdfViewer'), { ssr: false });
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+  });
+}
+
+type SectionsCache = Partial<Record<SectionKey, string>>;
+
+export default function AnalyzePage() {
+  const [apiKey, setApiKey] = useState('');
+  const [showModal, setShowModal] = useState(false);
+
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfUrl, setPdfUrl] = useState('');
+  const [pdfBase64, setPdfBase64] = useState('');
+
+  // arXiv metadata for the current paper (set when opened from tracker)
+  const [arxivMeta, setArxivMeta] = useState<{ id: string; title: string } | null>(null);
+
+  const [lang, setLang] = useState<Lang>('zh');
+  const [cache, setCache] = useState<Record<Lang, SectionsCache>>({ zh: {}, en: {} });
+  const [currentSection, setCurrentSection] = useState<SectionKey | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisComplete, setAnalysisComplete] = useState<Record<Lang, boolean>>({ zh: false, en: false });
+  const [analysisError, setAnalysisError] = useState('');
+  const [figureMap, setFigureMap] = useState<Map<string, number>>(new Map());
+
+  const [viewerPage, setViewerPage] = useState(1);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatting, setIsChatting] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+
+  // Load API key; check for pending arXiv paper from tracker
+  useEffect(() => {
+    const saved = localStorage.getItem('gemini-api-key');
+    if (saved) setApiKey(saved);
+    else setShowModal(true);
+    setHistoryEntries(getHistory());
+
+    const pendingId = localStorage.getItem('pending-arxiv-id');
+    const pendingTitle = localStorage.getItem('pending-arxiv-title');
+    if (pendingId) {
+      localStorage.removeItem('pending-arxiv-id');
+      localStorage.removeItem('pending-arxiv-title');
+      setArxivMeta({ id: pendingId, title: pendingTitle || pendingId });
+    }
+  }, []);
+
+  // When we have both a pending arXiv paper and an API key, fetch and analyze it
+  useEffect(() => {
+    if (!arxivMeta || !apiKey) return;
+    const { id, title } = arxivMeta;
+    setArxivMeta(null); // consume
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/arxiv-pdf?id=${encodeURIComponent(id)}`);
+        if (!res.ok) throw new Error(`PDF download failed (${res.status})`);
+        const blob = await res.blob();
+        const file = new File([blob], `${title.slice(0, 60)}.pdf`, { type: 'application/pdf' });
+        handleFileSelect(file, { id, title });
+      } catch (err) {
+        setAnalysisError(
+          lang === 'zh'
+            ? `无法下载 PDF：${err instanceof Error ? err.message : '未知错误'}`
+            : `Failed to download PDF: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arxivMeta, apiKey]);
+
+  const handleApiKeySave = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('gemini-api-key', key);
+    setShowModal(false);
+  };
+
+  const runAnalysis = useCallback(async (
+    base64: string,
+    key: string,
+    language: Lang,
+    meta?: { id: string; title: string; fileName: string },
+  ) => {
+    setIsAnalyzing(true);
+    setAnalysisError('');
+    setCurrentSection(null);
+    setCache((prev) => ({ ...prev, [language]: {} }));
+    setAnalysisComplete((prev) => ({ ...prev, [language]: false }));
+
+    let accumulated = '';
+    try {
+      for await (const chunk of analyzePaper(key, base64, language)) {
+        accumulated += chunk;
+        const map = parseFigureMap(accumulated);
+        if (map.size > 0) setFigureMap(map);
+        const cleaned = stripFigureJson(accumulated);
+        const parsed = parseSections(cleaned);
+        setCache((prev) => ({ ...prev, [language]: parsed }));
+        const detected = SECTION_KEYS.filter((k) => k in parsed);
+        setCurrentSection(detected.length > 0 ? detected[detected.length - 1] : null);
+      }
+      setAnalysisComplete((prev) => ({ ...prev, [language]: true }));
+
+      // Write history once per paper (only on first language completion)
+      if (meta) {
+        addHistory({
+          id: meta.id,
+          title: meta.title,
+          source: meta.id === meta.fileName ? 'upload' : 'arxiv',
+          analyzedAt: new Date().toISOString(),
+        });
+        setHistoryEntries(getHistory());
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (language === 'zh' ? '未知错误' : 'Unknown error');
+      const isKeyError = msg.includes('API_KEY_INVALID') || msg.includes('API key');
+      const isQuota = msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+      setAnalysisError(
+        language === 'zh'
+          ? isKeyError ? 'API Key 无效，请点击右上角重新设置'
+            : isQuota ? 'API 免费额度已用完，请稍后再试'
+            : `分析失败：${msg}`
+          : isKeyError ? 'Invalid API Key — click the key button to update it'
+            : isQuota ? 'API quota exhausted — please try again later'
+            : `Analysis failed: ${msg}`
+      );
+    } finally {
+      setIsAnalyzing(false);
+      setCurrentSection(null);
+    }
+  }, []);
+
+  // arxivInfo is optional extra metadata when coming from tracker
+  const handleFileSelect = async (
+    file: File,
+    arxivInfo?: { id: string; title: string },
+  ) => {
+    if (!apiKey) { setShowModal(true); return; }
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    const url = URL.createObjectURL(file);
+    setPdfFile(file);
+    setPdfUrl(url);
+    setViewerPage(1);
+    setChatMessages([]);
+    setCache({ zh: {}, en: {} });
+    setAnalysisComplete({ zh: false, en: false });
+    setFigureMap(new Map());
+    const base64 = await fileToBase64(file);
+    setPdfBase64(base64);
+
+    const meta = arxivInfo
+      ? { id: arxivInfo.id, title: arxivInfo.title, fileName: arxivInfo.id }
+      : { id: file.name, title: file.name, fileName: file.name };
+
+    runAnalysis(base64, apiKey, lang, meta);
+  };
+
+  const handleLangSwitch = (next: Lang) => {
+    if (next === lang) return;
+    setLang(next);
+    setChatMessages([]);
+    if (!analysisComplete[next] && pdfBase64 && apiKey) {
+      runAnalysis(pdfBase64, apiKey, next);
+    }
+  };
+
+  const handleClearFile = () => {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    setPdfFile(null);
+    setPdfUrl('');
+    setPdfBase64('');
+    setCache({ zh: {}, en: {} });
+    setCurrentSection(null);
+    setIsAnalyzing(false);
+    setAnalysisComplete({ zh: false, en: false });
+    setAnalysisError('');
+    setFigureMap(new Map());
+    setChatMessages([]);
+    setViewerPage(1);
+  };
+
+  const handleChatSend = async (message: string) => {
+    if (!apiKey || !pdfBase64) return;
+    const newMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: message }];
+    setChatMessages([...newMessages, { role: 'assistant', content: '' }]);
+    setIsChatting(true);
+    let response = '';
+    try {
+      for await (const chunk of chatWithPaper(apiKey, pdfBase64, newMessages, lang)) {
+        response += chunk;
+        setChatMessages([...newMessages, { role: 'assistant', content: response }]);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (lang === 'zh' ? '未知错误' : 'Unknown error');
+      setChatMessages([...newMessages, { role: 'assistant', content: `Error: ${msg}` }]);
+    } finally {
+      setIsChatting(false);
+    }
+  };
+
+  const handleHistoryRemove = (id: string) => {
+    removeHistory(id);
+    setHistoryEntries(getHistory());
+  };
+
+  const handleHistoryClear = () => {
+    clearHistory();
+    setHistoryEntries([]);
+  };
+
+  const handleHistoryReanalyze = (entry: HistoryEntry) => {
+    if (entry.source === 'arxiv') {
+      setArxivMeta({ id: entry.id, title: entry.title });
+    }
+  };
+
+  const sections = cache[lang];
+  const isDone = analysisComplete[lang];
+
+  return (
+    <div className="h-screen overflow-hidden bg-slate-50 flex flex-col">
+      <NavHeader lang={lang} onLangChange={handleLangSwitch}>
+        {pdfFile && (
+          <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 rounded-lg px-3 py-1.5">
+            <span className="text-xs">📄</span>
+            <span className="max-w-[180px] truncate text-xs">{pdfFile.name}</span>
+            <button
+              onClick={handleClearFile}
+              className="text-slate-400 hover:text-slate-600 ml-1 text-base leading-none"
+              title={lang === 'zh' ? '清除文件' : 'Clear file'}
+            >×</button>
+          </div>
+        )}
+        <button
+          onClick={() => setShowModal(true)}
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            apiKey
+              ? 'text-green-700 bg-green-50 hover:bg-green-100'
+              : 'text-red-700 bg-red-50 hover:bg-red-100'
+          }`}
+        >
+          <span>{apiKey ? '🔑' : '⚠️'}</span>
+          {apiKey ? 'API Key' : 'No Key'}
+        </button>
+      </NavHeader>
+
+      {!pdfFile ? (
+        <main className="flex-1 flex flex-col overflow-y-auto">
+          {analysisError && (
+            <div className="max-w-2xl mx-auto w-full px-8 pt-6">
+              <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <span className="mt-0.5 shrink-0">⚠️</span>
+                <span className="flex-1">{analysisError}</span>
+                <button
+                  onClick={() => setAnalysisError('')}
+                  className="shrink-0 text-red-400 hover:text-red-700 leading-none text-base"
+                >×</button>
+              </div>
+            </div>
+          )}
+          <PdfUpload
+            onFileSelect={handleFileSelect}
+            disabled={!apiKey}
+            onSetupKey={() => setShowModal(true)}
+            lang={lang}
+          />
+          {historyEntries.length > 0 && (
+            <div className="max-w-2xl mx-auto w-full px-8 pb-10">
+              <HistoryList
+                entries={historyEntries}
+                lang={lang}
+                onRemove={handleHistoryRemove}
+                onClear={handleHistoryClear}
+                onReanalyze={handleHistoryReanalyze}
+                maxItems={5}
+                showViewAll={historyEntries.length > 5}
+              />
+            </div>
+          )}
+        </main>
+      ) : (
+        <main className="flex-1 flex overflow-hidden" style={{ height: 'calc(100vh - 56px)' }}>
+          <div className="w-[45%] shrink-0 border-r border-slate-200 flex flex-col">
+            <PdfViewer pdfUrl={pdfUrl} targetPage={viewerPage} />
+          </div>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto">
+              <ReportView
+                sections={sections}
+                currentSection={currentSection}
+                isAnalyzing={isAnalyzing}
+                error={analysisError}
+                figureMap={figureMap}
+                onFigureClick={setViewerPage}
+                lang={lang}
+              />
+            </div>
+            {isDone && (
+              <div className="shrink-0 border-t border-slate-200">
+                <ChatPanel
+                  messages={chatMessages}
+                  onSend={handleChatSend}
+                  isChatting={isChatting}
+                  lang={lang}
+                />
+              </div>
+            )}
+          </div>
+        </main>
+      )}
+
+      {showModal && (
+        <ApiKeyModal
+          currentKey={apiKey}
+          onSave={handleApiKeySave}
+          onClose={() => setShowModal(false)}
+          lang={lang}
+        />
+      )}
+    </div>
+  );
+}
