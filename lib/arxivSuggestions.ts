@@ -22,6 +22,17 @@ const SUGGESTIONS: Suggestion[] = [
   { label: 'Mistral' },
   { label: 'mixture of experts' },
 
+  // ── Agents ──
+  { label: 'AI agent' },
+  { label: 'LLM agent' },
+  { label: 'autonomous agent' },
+  { label: 'multi-agent system' },
+  { label: 'tool use' },
+  { label: 'agentic AI' },
+  { label: 'planning' },
+  { label: 'reasoning' },
+  { label: 'code generation' },
+
   // ── Vision & Multimodal ──
   { label: 'vision transformer' },
   { label: 'vision language model' },

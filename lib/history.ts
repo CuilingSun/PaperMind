@@ -4,12 +4,14 @@ export interface HistoryEntry {
   authors?: string[];
   published?: string;
   absUrl?: string;
+  summary?: string;
+  report?: Record<string, Record<string, string>>; // lang -> sectionKey -> content
   source: 'arxiv' | 'upload';
   analyzedAt: string;
 }
 
 const KEY = 'arxiv-history';
-const MAX = 50;
+const MAX = 20;
 
 export function getHistory(): HistoryEntry[] {
   if (typeof window === 'undefined') return [];
@@ -23,7 +25,17 @@ export function getHistory(): HistoryEntry[] {
 export function addHistory(entry: HistoryEntry): void {
   const list = getHistory().filter((e) => e.id !== entry.id);
   list.unshift(entry);
-  localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX)));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX)));
+  } catch {
+    // localStorage full — retry without report content
+    const slim = list.slice(0, MAX).map((e) => ({ ...e, report: undefined }));
+    try {
+      localStorage.setItem(KEY, JSON.stringify(slim));
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function removeHistory(id: string): void {

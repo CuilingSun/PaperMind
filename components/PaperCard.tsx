@@ -7,11 +7,10 @@ import { Lang } from '@/lib/gemini';
 interface Props {
   paper: ArxivPaper;
   lang: Lang;
-  hasApiKey: boolean;
   onAnalyze: (paper: ArxivPaper) => void;
 }
 
-export default function PaperCard({ paper, lang, hasApiKey, onAnalyze }: Props) {
+export default function PaperCard({ paper, lang, onAnalyze }: Props) {
   const [expanded, setExpanded] = useState(false);
   const zh = lang === 'zh';
 
@@ -59,9 +58,7 @@ export default function PaperCard({ paper, lang, hasApiKey, onAnalyze }: Props) 
             <div className="mt-3 flex justify-end">
               <button
                 onClick={() => onAnalyze(paper)}
-                disabled={!hasApiKey}
-                title={!hasApiKey ? (zh ? '请先设置 API Key' : 'Set up API Key first') : ''}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
               >
                 {zh ? '深度解析' : 'Deep analysis'}
                 <span>→</span>

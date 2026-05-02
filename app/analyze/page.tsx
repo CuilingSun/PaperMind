@@ -32,6 +32,17 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 type SectionsCache = Partial<Record<SectionKey, string>>;
+type CachedReport = Record<string, Record<string, string>>;
+
+interface ArxivInfo {
+  id: string;
+  title: string;
+  authors?: string[];
+  published?: string;
+  absUrl?: string;
+  summary?: string;
+  cachedReport?: CachedReport;
+}
 
 export default function AnalyzePage() {
   const [apiKey, setApiKey] = useState('');
@@ -41,8 +52,7 @@ export default function AnalyzePage() {
   const [pdfUrl, setPdfUrl] = useState('');
   const [pdfBase64, setPdfBase64] = useState('');
 
-  // arXiv metadata for the current paper (set when opened from tracker)
-  const [arxivMeta, setArxivMeta] = useState<{ id: string; title: string } | null>(null);
+  const [arxivMeta, setArxivMeta] = useState<ArxivInfo | null>(null);
 
   const [lang, setLang] = useState<Lang>('zh');
   const [cache, setCache] = useState<Record<Lang, SectionsCache>>({ zh: {}, en: {} });
@@ -69,23 +79,41 @@ export default function AnalyzePage() {
     if (pendingId) {
       localStorage.removeItem('pending-arxiv-id');
       localStorage.removeItem('pending-arxiv-title');
-      setArxivMeta({ id: pendingId, title: pendingTitle || pendingId });
+      const authors = localStorage.getItem('pending-arxiv-authors');
+      const published = localStorage.getItem('pending-arxiv-published');
+      const absUrl = localStorage.getItem('pending-arxiv-absurl');
+      const summary = localStorage.getItem('pending-arxiv-summary');
+      const report = localStorage.getItem('pending-arxiv-report');
+      localStorage.removeItem('pending-arxiv-authors');
+      localStorage.removeItem('pending-arxiv-published');
+      localStorage.removeItem('pending-arxiv-absurl');
+      localStorage.removeItem('pending-arxiv-summary');
+      localStorage.removeItem('pending-arxiv-report');
+      setArxivMeta({
+        id: pendingId,
+        title: pendingTitle || pendingId,
+        authors: authors ? JSON.parse(authors) : undefined,
+        published: published || undefined,
+        absUrl: absUrl || undefined,
+        summary: summary || undefined,
+        cachedReport: report ? JSON.parse(report) : undefined,
+      });
     }
   }, []);
 
-  // When we have both a pending arXiv paper and an API key, fetch and analyze it
+  // When we have both a pending arXiv paper and an API key, fetch PDF and analyze/restore
   useEffect(() => {
     if (!arxivMeta || !apiKey) return;
-    const { id, title } = arxivMeta;
+    const meta = arxivMeta;
     setArxivMeta(null); // consume
 
     (async () => {
       try {
-        const res = await fetch(`/api/arxiv-pdf?id=${encodeURIComponent(id)}`);
+        const res = await fetch(`/api/arxiv-pdf?id=${encodeURIComponent(meta.id)}`);
         if (!res.ok) throw new Error(`PDF download failed (${res.status})`);
         const blob = await res.blob();
-        const file = new File([blob], `${title.slice(0, 60)}.pdf`, { type: 'application/pdf' });
-        handleFileSelect(file, { id, title });
+        const file = new File([blob], `${meta.title.slice(0, 60)}.pdf`, { type: 'application/pdf' });
+        handleFileSelect(file, meta);
       } catch (err) {
         setAnalysisError(
           lang === 'zh'
@@ -107,7 +135,7 @@ export default function AnalyzePage() {
     base64: string,
     key: string,
     language: Lang,
-    meta?: { id: string; title: string; fileName: string },
+    meta?: { id: string; title: string; source: 'arxiv' | 'upload'; authors?: string[]; published?: string; absUrl?: string; summary?: string },
   ) => {
     setIsAnalyzing(true);
     setAnalysisError('');
@@ -129,12 +157,21 @@ export default function AnalyzePage() {
       }
       setAnalysisComplete((prev) => ({ ...prev, [language]: true }));
 
-      // Write history once per paper (only on first language completion)
       if (meta) {
+        const finalSections = parseSections(stripFigureJson(accumulated));
+        const existing = getHistory().find((e) => e.id === meta.id);
         addHistory({
           id: meta.id,
           title: meta.title,
-          source: meta.id === meta.fileName ? 'upload' : 'arxiv',
+          authors: meta.authors,
+          published: meta.published,
+          absUrl: meta.absUrl,
+          summary: meta.summary,
+          report: {
+            ...(existing?.report ?? {}),
+            [language]: finalSections as Record<string, string>,
+          },
+          source: meta.source,
           analyzedAt: new Date().toISOString(),
         });
         setHistoryEntries(getHistory());
@@ -158,10 +195,9 @@ export default function AnalyzePage() {
     }
   }, []);
 
-  // arxivInfo is optional extra metadata when coming from tracker
   const handleFileSelect = async (
     file: File,
-    arxivInfo?: { id: string; title: string },
+    arxivInfo?: ArxivInfo,
   ) => {
     if (!apiKey) { setShowModal(true); return; }
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
@@ -170,17 +206,34 @@ export default function AnalyzePage() {
     setPdfUrl(url);
     setViewerPage(1);
     setChatMessages([]);
-    setCache({ zh: {}, en: {} });
-    setAnalysisComplete({ zh: false, en: false });
     setFigureMap(new Map());
     const base64 = await fileToBase64(file);
     setPdfBase64(base64);
 
-    const meta = arxivInfo
-      ? { id: arxivInfo.id, title: arxivInfo.title, fileName: arxivInfo.id }
-      : { id: file.name, title: file.name, fileName: file.name };
+    // Restore any cached report sections
+    const cached = arxivInfo?.cachedReport;
+    const restoredCache: Record<Lang, SectionsCache> = { zh: {}, en: {} };
+    const restoredComplete: Record<Lang, boolean> = { zh: false, en: false };
+    if (cached?.zh && Object.keys(cached.zh).length > 0) {
+      restoredCache.zh = cached.zh as SectionsCache;
+      restoredComplete.zh = true;
+    }
+    if (cached?.en && Object.keys(cached.en).length > 0) {
+      restoredCache.en = cached.en as SectionsCache;
+      restoredComplete.en = true;
+    }
+    setCache(restoredCache);
+    setAnalysisComplete(restoredComplete);
 
-    runAnalysis(base64, apiKey, lang, meta);
+    // Only call API for languages not already cached
+    if (!restoredComplete[lang]) {
+      const meta = arxivInfo
+        ? { id: arxivInfo.id, title: arxivInfo.title, source: 'arxiv' as const,
+            authors: arxivInfo.authors, published: arxivInfo.published,
+            absUrl: arxivInfo.absUrl, summary: arxivInfo.summary }
+        : { id: file.name, title: file.name, source: 'upload' as const };
+      runAnalysis(base64, apiKey, lang, meta);
+    }
   };
 
   const handleLangSwitch = (next: Lang) => {
@@ -238,7 +291,15 @@ export default function AnalyzePage() {
 
   const handleHistoryReanalyze = (entry: HistoryEntry) => {
     if (entry.source === 'arxiv') {
-      setArxivMeta({ id: entry.id, title: entry.title });
+      setArxivMeta({
+        id: entry.id,
+        title: entry.title,
+        authors: entry.authors,
+        published: entry.published,
+        absUrl: entry.absUrl,
+        summary: entry.summary,
+        cachedReport: entry.report,
+      });
     }
   };
 

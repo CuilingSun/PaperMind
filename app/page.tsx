@@ -4,15 +4,21 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import LangDropdown from '@/components/LangDropdown';
 import HistoryList from '@/components/HistoryList';
+import PreferenceKeywords from '@/components/PreferenceKeywords';
+import TodaysPicks from '@/components/TodaysPicks';
 import { getHistory, removeHistory, clearHistory, HistoryEntry } from '@/lib/history';
+import { getPreferenceKeywords } from '@/lib/preferenceKeywords';
+import { ArxivPaper } from '@/lib/arxiv';
 import { Lang } from '@/lib/gemini';
 
 export default function LandingPage() {
   const [lang, setLang] = useState<Lang>('zh');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [prefKeywords, setPrefKeywords] = useState<string[]>([]);
 
   useEffect(() => {
     setHistory(getHistory());
+    setPrefKeywords(getPreferenceKeywords());
   }, []);
 
   const handleRemove = (id: string) => {
@@ -26,9 +32,24 @@ export default function LandingPage() {
   };
 
   const handleReanalyze = (entry: HistoryEntry) => {
-    if (!entry.absUrl) return;
+    if (entry.source !== 'arxiv') return;
     localStorage.setItem('pending-arxiv-id', entry.id);
     localStorage.setItem('pending-arxiv-title', entry.title);
+    if (entry.authors) localStorage.setItem('pending-arxiv-authors', JSON.stringify(entry.authors));
+    if (entry.published) localStorage.setItem('pending-arxiv-published', entry.published);
+    if (entry.absUrl) localStorage.setItem('pending-arxiv-absurl', entry.absUrl);
+    if (entry.summary) localStorage.setItem('pending-arxiv-summary', entry.summary);
+    if (entry.report) localStorage.setItem('pending-arxiv-report', JSON.stringify(entry.report));
+    window.open('/analyze', '_blank');
+  };
+
+  const handleAnalyze = (paper: ArxivPaper) => {
+    localStorage.setItem('pending-arxiv-id', paper.id);
+    localStorage.setItem('pending-arxiv-title', paper.title);
+    localStorage.setItem('pending-arxiv-authors', JSON.stringify(paper.authors));
+    localStorage.setItem('pending-arxiv-published', paper.published);
+    localStorage.setItem('pending-arxiv-absurl', paper.absUrl);
+    localStorage.setItem('pending-arxiv-summary', paper.summary);
     window.open('/analyze', '_blank');
   };
 
@@ -37,14 +58,12 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Minimal landing header */}
+      {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur-sm">
         <div className="px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">📚</span>
-            <span className="font-semibold text-slate-900">
-              PaperMind
-            </span>
+            <span className="font-semibold text-slate-900">PaperMind</span>
             <span className="hidden sm:inline text-xs text-slate-400 border border-slate-200 rounded px-1.5 py-0.5">
               CS / AI
             </span>
@@ -53,64 +72,72 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center justify-start px-6 pt-16 pb-12">
-        <div className="w-full max-w-2xl">
-          {/* Hero */}
-          <div className="text-center mb-10">
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">
-              {zh ? '选择你想要的功能' : 'Choose what to do'}
-            </h1>
-            <p className="text-sm text-slate-500">
-              {zh ? 'CS / AI 论文追踪 · 深度解析一体' : 'Track arXiv papers · Deep analysis in one place'}
-            </p>
-          </div>
+      <main className="flex-1 flex flex-col items-center justify-start px-6 pt-12 pb-12">
+        <div className="w-full max-w-2xl space-y-8">
 
           {/* Feature cards */}
-          <div className="grid grid-cols-2 gap-4 mb-10">
+          <div className="grid grid-cols-3 gap-4">
             <Link
               href="/tracker"
-              className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all"
+              className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all"
             >
               <div className="text-3xl mb-3">📡</div>
-              <h2 className="font-semibold text-slate-900 mb-1">
+              <h2 className="font-semibold text-slate-900 mb-1 text-sm">
                 {zh ? '追踪' : 'Track'}
               </h2>
               <p className="text-xs text-slate-500 leading-relaxed">
-                {zh
-                  ? '订阅关键词，浏览 arXiv 最新论文，一键触发深度解析'
-                  : 'Subscribe to keywords, browse arXiv papers, one-click deep analysis'}
+                {zh ? '搜索 arXiv 最新论文，一键深度解析' : 'Search latest arXiv papers, one-click analysis'}
               </p>
             </Link>
 
             <Link
               href="/analyze"
-              className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all"
+              className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all"
             >
               <div className="text-3xl mb-3">📄</div>
-              <h2 className="font-semibold text-slate-900 mb-1">
+              <h2 className="font-semibold text-slate-900 mb-1 text-sm">
                 {zh ? '解析' : 'Analyze'}
               </h2>
               <p className="text-xs text-slate-500 leading-relaxed">
-                {zh
-                  ? '上传 PDF 或粘贴 arXiv 链接，AI 生成结构化深度报告'
-                  : 'Upload a PDF or paste an arXiv link for an AI-generated analysis report'}
+                {zh ? '上传 PDF，AI 生成结构化深度报告' : 'Upload a PDF for AI-generated analysis'}
+              </p>
+            </Link>
+
+            <Link
+              href="/history"
+              className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all"
+            >
+              <div className="text-3xl mb-3">🕘</div>
+              <h2 className="font-semibold text-slate-900 mb-1 text-sm">
+                {zh ? '历史' : 'History'}
+              </h2>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                {zh ? '查看全部解析记录，随时重新解析' : 'View past analyses and re-analyze anytime'}
               </p>
             </Link>
           </div>
 
+          {/* Keyword preferences */}
+          <PreferenceKeywords lang={lang} onChange={setPrefKeywords} />
+
+          {/* Today's picks */}
+          <TodaysPicks
+            keywords={prefKeywords}
+            lang={lang}
+            onAnalyze={handleAnalyze}
+          />
+
           {/* Recent history */}
           {recent.length > 0 && (
-            <div>
-              <HistoryList
-                entries={recent}
-                lang={lang}
-                onRemove={handleRemove}
-                onClear={handleClear}
-                onReanalyze={handleReanalyze}
-                maxItems={5}
-                showViewAll={history.length > 5}
-              />
-            </div>
+            <HistoryList
+              entries={recent}
+              lang={lang}
+              onRemove={handleRemove}
+              onClear={handleClear}
+              onReanalyze={handleReanalyze}
+              maxItems={5}
+              showViewAll={history.length > 5}
+            />
           )}
         </div>
       </main>

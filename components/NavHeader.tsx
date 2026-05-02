@@ -46,6 +46,7 @@ export default function NavHeader({ lang, onLangChange, children }: Props) {
           <div className="flex items-center gap-1 ml-2">
             {navLink('/tracker', '追踪', 'Track')}
             {navLink('/analyze', '解析', 'Analyze')}
+            {navLink('/history', '历史', 'History')}
           </div>
         </div>
 

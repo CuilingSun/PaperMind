@@ -12,10 +12,12 @@
 | v1.3 | 2026-04-25 | 追踪页关键词自动补全（~130 条 CS/AI 主题词库）；高级筛选面板（作者、arXiv 分类、年份区间、排序） |
 | v1.4 | 2026-04-26 | 追踪页改为多关键词 AND 合并搜索（去除分 Tab 设计）；IME 中文输入法兼容；关键词 pill 管理优化 |
 | v1.5 | 2026-04-26 | 全局错误边界（`app/error.tsx`）；PDF 下载失败在空状态显示错误条；追踪页错误 + 重试按钮 |
+| v1.6 | 2026-04-27 | 历史卡片重设计（作者/日期/摘要展开/深度解析）；历史记录保存完整报告（localStorage 缓存，避免重复调 API）；追踪页「深度解析」按钮始终可点 |
+| v1.7 | 2026-05-02 | 关键词偏好管理系统（独立于追踪页搜索）；首页「今日精选」（基于偏好关键词，1 小时缓存）；追踪页无搜索时展示今日精选；追踪页改为纯 session 搜索（不持久化）；词库新增 Agent 相关词条 |
 
 ---
 
-## 当前版本：v1.5
+## 当前版本：v1.7
 
 **状态**：已实现，持续迭代中
 
@@ -26,8 +28,10 @@
 **一句话定位**：为 CS/AI 研究者提供的一站式论文工具——追踪 arXiv 最新论文 + 一键深度解析 + 历史记录管理，零注册、零成本。
 
 **核心价值**：
-- 用关键词组合订阅 arXiv，自动发现与所有关键词都相关的最新论文
-- 上传 PDF 或直接从追踪列表解析，秒级获得 7 维结构化报告
+- 设置长期偏好关键词，首页「今日精选」每日自动推荐相关最新论文
+- 追踪页快速搜索 arXiv（会话级，不持久化），多关键词 AND 精准过滤
+- 上传 PDF 或直接从论文列表解析，秒级获得 7 维结构化报告
+- 报告自动缓存到本地，再次打开无需重复调用 API
 - 支持中英文切换，面向中英文混合阅读场景
 - 用户使用自己的免费 Gemini API Key，无使用成本
 
@@ -70,11 +74,11 @@
 ```
 
 **典型用户旅程**：
-1. 首次访问 `/` → 看到两张功能卡片 + 最近 5 条解析历史
-2. 进入 `/tracker` → 输入关键词（支持自动补全）→ 可加 Filter → 点击搜索 → 看到与所有关键词相关的论文
-3. 在论文卡片点击「解析」→ 新标签页打开 `/analyze`，自动下载并分析
-4. 返回 `/tracker` 继续浏览；可随时上传本地 PDF 到 `/analyze` 解析
-5. 在 `/analyze` 或 `/history` 查看历史，一键重新解析
+1. 首次访问 `/` → 设置偏好关键词 → 「今日精选」自动推荐最新论文 → 可直接点击「深度解析」
+2. 进入 `/tracker` → 无搜索时展示今日精选；输入关键词后显示搜索结果（会话级，刷新后清空）
+3. 在论文卡片展开摘要 → 点击「深度解析」→ 新标签页打开 `/analyze`，自动下载并分析
+4. 分析完成后报告自动保存到历史（含完整报告内容）
+5. 在 `/history` 点击「深度解析」→ 有缓存则直接恢复，无需重新调 API
 
 ---
 
@@ -82,31 +86,27 @@
 
 #### 4.1 首页（`/`）
 
-- 两张功能入口卡片：「追踪 arXiv」→ `/tracker`，「解析论文」→ `/analyze`
+- 三张功能入口卡片：「追踪」→ `/tracker`，「解析」→ `/analyze`，「历史」→ `/history`
+- **偏好关键词管理**（PreferenceKeywords 组件）：添加 / 删除长期兴趣关键词，持久化到 localStorage（`preference-keywords`）
+- **今日精选**（TodaysPicks 组件）：读取偏好关键词，并行搜索最近 3 天 arXiv 论文，按关键词匹配数排序，展示前 5 篇；结果缓存 1 小时；无偏好关键词时使用兜底热门词（machine learning / large language model / reinforcement learning）
 - 展示最近 5 条解析历史；超过 5 条时显示「查看全部 →」
 
 #### 4.2 追踪页（`/tracker`）
 
-**关键词管理（KeywordManager 组件）**：
-- 关键词输入框，输入时实时显示自动补全建议（~130 条主题词 + arXiv 分类，前缀优先匹配）
+**搜索（会话级，不持久化）**：
+- 关键词输入框，输入时实时显示自动补全建议（~140 条主题词 + arXiv 分类，含 Agent 相关词条，前缀优先匹配）
 - 支持 IME 中文输入法（compositionstart/end 防止中间态提交）
-- 从补全列表选中后立即提交；点击「搜索」按钮可手动提交
-- 已追踪关键词以 pill 标签显示，点击 `×` 删除单个；「清除全部」一键清空
+- 多关键词以 **AND** 合并为单个 arXiv 查询（如 `all:LLM agent AND all:planning`）
+- 关键词以 pill 显示，点 `×` 删除；「清除全部」一键清空；刷新后清空
 
 **高级筛选（Filter 面板，可折叠）**：
-- 作者名（文本输入，对应 arXiv `au:` 查询）
-- arXiv 分类（下拉，10 个常用 CS/AI 类别）
-- 发布年份区间（from / to）
-- 排序方式（最新 / 相关度）
+- 作者名（`au:` 查询）、arXiv 分类（10 类）、年份区间、排序方式（最新 / 相关度）
 
-**搜索逻辑**：
-- 多关键词以 **AND** 合并为单个 arXiv 查询（如 `all:image generation AND all:diffusion model`）
-- 每次增删关键词自动重新搜索；错误时显示提示 + 重试按钮
+**默认视图（无搜索词时）**：展示今日精选（复用首页 TodaysPicks 组件）
 
 **论文卡片（PaperCard 组件）**：
-- 标题、作者、发布日期、摘要（可展开）
-- `[arXiv ↗]`、`[PDF ↗]` 链接
-- 「解析」按钮：新标签页打开 `/analyze` 自动分析
+- 标题、作者、发布日期、arXiv 链接、摘要（可展开）
+- 展开后显示「深度解析 →」按钮（始终可点，由 `/analyze` 页处理 API Key）
 
 #### 4.3 解析页（`/analyze`）
 
@@ -160,34 +160,37 @@
   page.tsx                    # 首页（Landing）
   error.tsx                   # 全局错误边界
   /analyze/page.tsx           # 解析页
-  /tracker/page.tsx           # 追踪页
+  /tracker/page.tsx           # 追踪页（会话级搜索 + 今日精选默认视图）
   /history/page.tsx           # 历史页
   /api/arxiv/route.ts         # arXiv 搜索代理（CORS bypass）
   /api/arxiv-pdf/route.ts     # arXiv PDF 下载代理
 
 /components
-  NavHeader.tsx               # 共享导航栏（含语言切换）
+  NavHeader.tsx               # 共享导航栏（追踪 / 解析 / 历史）
   ApiKeyModal.tsx             # API Key 输入弹窗
   PdfUpload.tsx               # 拖拽上传区
   PdfViewer.tsx               # PDF 预览（动态加载，SSR=false）
   ReportView.tsx              # 7 维报告 + 骨架动画 + 错误展示
   ChatPanel.tsx               # Q&A 多轮对话
-  KeywordManager.tsx          # 关键词输入 + Filter 面板 + pills
-  PaperCard.tsx               # arXiv 论文卡片
-  HistoryList.tsx             # 历史记录列表
+  KeywordManager.tsx          # 搜索关键词输入 + Filter 面板 + pills（会话级）
+  PreferenceKeywords.tsx      # 偏好关键词管理（长期持久化）
+  TodaysPicks.tsx             # 今日精选（含 1h localStorage 缓存）
+  PaperCard.tsx               # arXiv 论文卡片（可展开摘要 + 深度解析）
+  HistoryList.tsx             # 历史记录列表（卡片式，含摘要展开 + 深度解析）
   LangDropdown.tsx            # 语言切换下拉
 
 /lib
   gemini.ts                   # Gemini SDK 封装
   prompts.ts                  # 分析 & 对话 Prompt 模板（中英文）
   arxiv.ts                    # arXiv 类型定义 + 搜索函数
-  arxivSuggestions.ts         # 关键词自动补全词库
-  history.ts                  # 历史记录 CRUD（localStorage）
+  arxivSuggestions.ts         # 关键词自动补全词库（~140 条，含 Agent 词条）
+  history.ts                  # 历史记录 CRUD（localStorage，上限 20 条，含报告缓存）
+  preferenceKeywords.ts       # 偏好关键词 CRUD（localStorage）
   figureParser.ts             # 解析报告中的图表引用
 ```
 
 **Gemini 模型**：
-- 论文分析：`gemini-3.1-flash-lite-preview`（流式，原生 PDF 输入）
+- 论文分析：`gemini-2.5-flash`（流式，原生 PDF 输入）
 - Q&A 追问：`gemini-2.5-flash-lite`（流式多轮对话）
 
 **数据持久化**（全部 localStorage）：
@@ -195,10 +198,10 @@
 | Key | 内容 |
 |-----|------|
 | `gemini-api-key` | 用户 API Key |
-| `arxiv-keywords` | 追踪关键词列表（`TrackedSearch[]` JSON） |
-| `paper-history` | 解析历史（`HistoryEntry[]`，上限 50 条） |
-| `pending-arxiv-id` | 跨标签传递待解析论文 ID |
-| `pending-arxiv-title` | 跨标签传递待解析论文标题 |
+| `preference-keywords` | 偏好关键词列表（`string[]`，长期保存） |
+| `arxiv-history` | 解析历史（`HistoryEntry[]`，上限 20 条，含完整报告缓存） |
+| `todays-picks-cache` | 今日精选缓存（含关键词签名 + 时间戳，TTL 1 小时） |
+| `pending-arxiv-*` | 跨标签传递待解析论文元数据（id / title / authors / published / absUrl / summary / report） |
 
 ---
 
@@ -218,12 +221,14 @@
 | 类型 | 描述 |
 |------|------|
 | 当前限制 | 移动端未适配 |
-| 当前限制 | 历史记录仅存本地，换设备后丢失 |
+| 当前限制 | 所有数据仅存本地，换设备后丢失 |
 | 当前限制 | arXiv 搜索结果上限 20 条 |
+| 当前限制 | 今日精选首次加载较慢（受 arXiv API 响应速度限制，1h 缓存后恢复快速） |
 | 未来方向 | 报告导出为 Markdown |
 | 未来方向 | BibTeX 引用一键生成 |
-| 未来方向 | 追踪页支持论文收藏（标星） |
+| 未来方向 | 论文收藏（标星） |
 | 未来方向 | 多论文对比分析 |
+| 未来方向 | 偏好关键词驱动的邮件/推送订阅 |
 
 ---
 

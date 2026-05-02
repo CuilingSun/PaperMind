@@ -4,31 +4,22 @@ import { useEffect, useState, useCallback } from 'react';
 import NavHeader from '@/components/NavHeader';
 import KeywordManager from '@/components/KeywordManager';
 import PaperCard from '@/components/PaperCard';
+import TodaysPicks from '@/components/TodaysPicks';
 import { searchArxivCombined, ArxivPaper, TrackedSearch } from '@/lib/arxiv';
+import { getPreferenceKeywords } from '@/lib/preferenceKeywords';
 import { Lang } from '@/lib/gemini';
-
-const KW_KEY = 'arxiv-keywords';
-
-function loadSearches(): TrackedSearch[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(KW_KEY) || '[]');
-    if (!Array.isArray(raw) || raw.length === 0) return [];
-    if (typeof raw[0] === 'string') {
-      return (raw as string[]).map((kw) => ({ id: kw, keyword: kw }));
-    }
-    return raw as TrackedSearch[];
-  } catch {
-    return [];
-  }
-}
 
 export default function TrackerPage() {
   const [lang, setLang]         = useState<Lang>('zh');
-  const [apiKey, setApiKey]     = useState('');
   const [searches, setSearches] = useState<TrackedSearch[]>([]);
   const [papers, setPapers]     = useState<ArxivPaper[]>([]);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [prefKeywords, setPrefKeywords] = useState<string[]>([]);
+
+  useEffect(() => {
+    setPrefKeywords(getPreferenceKeywords());
+  }, []);
 
   const fetchAll = useCallback(async (list: TrackedSearch[]) => {
     if (list.length === 0) { setPapers([]); return; }
@@ -44,25 +35,15 @@ export default function TrackerPage() {
     }
   }, [lang]);
 
-  useEffect(() => {
-    setApiKey(localStorage.getItem('gemini-api-key') || '');
-    const saved = loadSearches();
-    setSearches(saved);
-    if (saved.length > 0) fetchAll(saved);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const addSearch = (s: TrackedSearch) => {
     const next = [...searches, s];
     setSearches(next);
-    localStorage.setItem(KW_KEY, JSON.stringify(next));
     fetchAll(next);
   };
 
   const removeSearch = (id: string) => {
     const next = searches.filter((s) => s.id !== id);
     setSearches(next);
-    localStorage.setItem(KW_KEY, JSON.stringify(next));
     fetchAll(next);
   };
 
@@ -70,12 +51,15 @@ export default function TrackerPage() {
     setSearches([]);
     setPapers([]);
     setError('');
-    localStorage.setItem(KW_KEY, JSON.stringify([]));
   };
 
   const handleAnalyze = (paper: ArxivPaper) => {
     localStorage.setItem('pending-arxiv-id', paper.id);
     localStorage.setItem('pending-arxiv-title', paper.title);
+    localStorage.setItem('pending-arxiv-authors', JSON.stringify(paper.authors));
+    localStorage.setItem('pending-arxiv-published', paper.published);
+    localStorage.setItem('pending-arxiv-absurl', paper.absUrl);
+    localStorage.setItem('pending-arxiv-summary', paper.summary);
     window.open('/analyze', '_blank');
   };
 
@@ -95,11 +79,8 @@ export default function TrackerPage() {
         />
 
         {searches.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-            <span className="text-5xl mb-4">📡</span>
-            <p className="text-sm">
-              {zh ? '添加关键词开始追踪 arXiv 最新论文' : 'Add a keyword to start tracking arXiv papers'}
-            </p>
+          <div className="px-6 py-6">
+            <TodaysPicks keywords={prefKeywords} lang={lang} onAnalyze={handleAnalyze} />
           </div>
         ) : (
           <div className="px-6 py-4">
@@ -127,7 +108,6 @@ export default function TrackerPage() {
                     key={paper.id}
                     paper={paper}
                     lang={lang}
-                    hasApiKey={!!apiKey}
                     onAnalyze={handleAnalyze}
                   />
                 ))}

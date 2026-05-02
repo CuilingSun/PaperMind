@@ -25,9 +25,14 @@ export default function HistoryPage() {
   };
 
   const handleReanalyze = (entry: HistoryEntry) => {
-    if (!entry.absUrl) return;
+    if (entry.source !== 'arxiv') return;
     localStorage.setItem('pending-arxiv-id', entry.id);
     localStorage.setItem('pending-arxiv-title', entry.title);
+    if (entry.authors) localStorage.setItem('pending-arxiv-authors', JSON.stringify(entry.authors));
+    if (entry.published) localStorage.setItem('pending-arxiv-published', entry.published);
+    if (entry.absUrl) localStorage.setItem('pending-arxiv-absurl', entry.absUrl);
+    if (entry.summary) localStorage.setItem('pending-arxiv-summary', entry.summary);
+    if (entry.report) localStorage.setItem('pending-arxiv-report', JSON.stringify(entry.report));
     window.open('/analyze', '_blank');
   };
 
@@ -68,6 +73,7 @@ export default function HistoryPage() {
             onRemove={handleRemove}
             onClear={handleClear}
             onReanalyze={handleReanalyze}
+            hideHeader
           />
         )}
       </main>
