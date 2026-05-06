@@ -2,6 +2,9 @@ export interface ArxivPaper {
   id: string;
   title: string;
   authors: string[];
+  affiliations: string[];   // from <arxiv:affiliation> tags; empty when not provided
+  primaryCategory?: string;
+  categories?: string[];
   published: string;
   summary: string;
   pdfUrl: string;
@@ -40,6 +43,65 @@ export async function searchArxivCombined(searches: TrackedSearch[], n = 20): Pr
   if (searches.length === 0) return [];
   const keywords = searches.map(s => s.keyword).filter(Boolean);
   const params = new URLSearchParams({ kws: keywords.join('|'), n: String(n) });
+  const res = await fetch(`/api/arxiv?${params.toString()}`);
+  if (!res.ok) throw new Error(`arXiv search failed: ${res.status}`);
+  return res.json();
+}
+
+export async function searchOpenAlexPicks(userKeywords: string[], n = 30): Promise<ArxivPaper[]> {
+  const { ELITE_INSTITUTION_IDS, DEFAULT_AREA_KEYWORDS } = await import('./eliteFilter');
+  const activeKeywords = userKeywords.length > 0 ? userKeywords : DEFAULT_AREA_KEYWORDS;
+  const params = new URLSearchParams({
+    institutionIds: ELITE_INSTITUTION_IDS.join('|'),
+    keywords: activeKeywords.join('|'),
+    n: String(n),
+    days: '14',
+  });
+  const res = await fetch(`/api/openalex?${params.toString()}`);
+  if (!res.ok) throw new Error(`OpenAlex search failed: ${res.status}`);
+  return res.json();
+}
+
+export async function searchArxivByCategory(category: string, n = 80): Promise<ArxivPaper[]> {
+  if (!category) return [];
+  const params = new URLSearchParams({
+    rawQuery: `cat:${encodeURIComponent(category)}`,
+    sortBy: 'submittedDate',
+    n: String(n),
+  });
+  const res = await fetch(`/api/arxiv?${params.toString()}`);
+  if (!res.ok) throw new Error(`arXiv search failed: ${res.status}`);
+  return res.json();
+}
+
+export async function searchArxivByCategories(categories: string[], n = 80): Promise<ArxivPaper[]> {
+  if (categories.length === 0) return [];
+  const rawQuery = categories.map((category) => `cat:${encodeURIComponent(category)}`).join('+OR+');
+  const params = new URLSearchParams({
+    rawQuery,
+    sortBy: 'submittedDate',
+    n: String(n),
+  });
+  const res = await fetch(`/api/arxiv?${params.toString()}`);
+  if (!res.ok) throw new Error(`arXiv search failed: ${res.status}`);
+  return res.json();
+}
+
+export async function searchInstitutionPapers(n = 100): Promise<ArxivPaper[]> {
+  const { ELITE_INSTITUTION_IDS } = await import('./eliteFilter');
+  const params = new URLSearchParams({
+    institutionIds: ELITE_INSTITUTION_IDS.join('|'),
+    days: '14',
+    n: String(n),
+  });
+  const res = await fetch(`/api/openalex?${params.toString()}`);
+  if (!res.ok) throw new Error(`OpenAlex search failed: ${res.status}`);
+  return res.json();
+}
+
+export async function searchArxivOr(keywords: string[], n = 20): Promise<ArxivPaper[]> {
+  if (keywords.length === 0) return [];
+  const params = new URLSearchParams({ kws: keywords.join('|'), join: 'or', sortBy: 'submittedDate', n: String(n) });
   const res = await fetch(`/api/arxiv?${params.toString()}`);
   if (!res.ok) throw new Error(`arXiv search failed: ${res.status}`);
   return res.json();

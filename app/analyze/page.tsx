@@ -307,42 +307,54 @@ export default function AnalyzePage() {
   const isDone = analysisComplete[lang];
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 flex flex-col">
+    <div style={{ height: '100vh', overflow: 'hidden', background: 'var(--pm-bg-page)', display: 'flex', flexDirection: 'column' }}>
       <NavHeader lang={lang} onLangChange={handleLangSwitch}>
         {pdfFile && (
-          <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 rounded-lg px-3 py-1.5">
-            <span className="text-xs">📄</span>
-            <span className="max-w-[180px] truncate text-xs">{pdfFile.name}</span>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'var(--pm-blue-light)', borderRadius: 'var(--pm-r-sm)',
+            padding: '4px 10px', fontSize: 12,
+          }}>
+            <span>📄</span>
+            <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--pm-blue-dark)' }}>
+              {pdfFile.name}
+            </span>
             <button
               onClick={handleClearFile}
-              className="text-slate-400 hover:text-slate-600 ml-1 text-base leading-none"
+              style={{ color: 'var(--pm-text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, marginLeft: 2 }}
               title={lang === 'zh' ? '清除文件' : 'Clear file'}
             >×</button>
           </div>
         )}
         <button
           onClick={() => setShowModal(true)}
-          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            apiKey
-              ? 'text-green-700 bg-green-50 hover:bg-green-100'
-              : 'text-red-700 bg-red-50 hover:bg-red-100'
-          }`}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '5px 10px', borderRadius: 'var(--pm-r-sm)',
+            fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer',
+            background: apiKey ? 'rgba(92,150,25,0.10)' : 'rgba(226,75,74,0.10)',
+            color: apiKey ? 'var(--pm-success)' : 'var(--pm-error)',
+          }}
         >
-          <span>{apiKey ? '🔑' : '⚠️'}</span>
-          {apiKey ? 'API Key' : 'No Key'}
+          {apiKey ? '🔑 API Key' : '⚠️ No Key'}
         </button>
       </NavHeader>
 
       {!pdfFile ? (
-        <main className="flex-1 flex flex-col overflow-y-auto">
+        <main className="pm-page-tint pm-tint-purple" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
           {analysisError && (
-            <div className="max-w-2xl mx-auto w-full px-8 pt-6">
-              <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                <span className="mt-0.5 shrink-0">⚠️</span>
-                <span className="flex-1">{analysisError}</span>
+            <div style={{ maxWidth: 720, margin: '0 auto', width: '100%', padding: '20px 24px 0' }}>
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                borderRadius: 'var(--pm-r-md)', border: '1px solid rgba(226,75,74,0.3)',
+                background: '#fff5f5', padding: '12px 16px',
+                fontSize: 13, color: 'var(--pm-error)',
+              }}>
+                <span style={{ flexShrink: 0 }}>⚠️</span>
+                <span style={{ flex: 1 }}>{analysisError}</span>
                 <button
                   onClick={() => setAnalysisError('')}
-                  className="shrink-0 text-red-400 hover:text-red-700 leading-none text-base"
+                  style={{ color: 'var(--pm-error)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, flexShrink: 0 }}
                 >×</button>
               </div>
             </div>
@@ -354,7 +366,7 @@ export default function AnalyzePage() {
             lang={lang}
           />
           {historyEntries.length > 0 && (
-            <div className="max-w-2xl mx-auto w-full px-8 pb-10">
+            <div style={{ maxWidth: 720, margin: '0 auto', width: '100%', padding: '0 24px 40px' }}>
               <HistoryList
                 entries={historyEntries}
                 lang={lang}
@@ -368,12 +380,12 @@ export default function AnalyzePage() {
           )}
         </main>
       ) : (
-        <main className="flex-1 flex overflow-hidden" style={{ height: 'calc(100vh - 56px)' }}>
-          <div className="w-[45%] shrink-0 border-r border-slate-200 flex flex-col">
+        <main style={{ flex: 1, display: 'flex', overflow: 'hidden', height: 'calc(100vh - 56px)' }}>
+          <div style={{ width: '45%', flexShrink: 0, borderRight: '1px solid var(--pm-border)', display: 'flex', flexDirection: 'column' }}>
             <PdfViewer pdfUrl={pdfUrl} targetPage={viewerPage} />
           </div>
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--pm-bg-page)' }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
               <ReportView
                 sections={sections}
                 currentSection={currentSection}
@@ -385,7 +397,7 @@ export default function AnalyzePage() {
               />
             </div>
             {isDone && (
-              <div className="shrink-0 border-t border-slate-200">
+              <div style={{ flexShrink: 0 }}>
                 <ChatPanel
                   messages={chatMessages}
                   onSend={handleChatSend}

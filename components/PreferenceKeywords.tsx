@@ -10,6 +10,18 @@ interface Props {
   onChange?: (keywords: string[]) => void;
 }
 
+const PlusIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12h14"/><path d="M12 5v14"/>
+  </svg>
+);
+
+const XIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+  </svg>
+);
+
 export default function PreferenceKeywords({ lang, onChange }: Props) {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [input, setInput] = useState('');
@@ -23,7 +35,7 @@ export default function PreferenceKeywords({ lang, onChange }: Props) {
     const saved = getPreferenceKeywords();
     setKeywords(saved);
     onChange?.(saved);
-  }, []);
+  }, [onChange]);
 
   useEffect(() => {
     if (!isComposing) {
@@ -74,21 +86,19 @@ export default function PreferenceKeywords({ lang, onChange }: Props) {
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-slate-800">
+    <div className="pm-panel">
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--pm-text)', letterSpacing: '-0.005em' }}>
           {zh ? '我的关键词偏好' : 'My Keyword Preferences'}
-        </h2>
-        {keywords.length > 0 && (
-          <span className="text-xs text-slate-400">
-            {zh ? `${keywords.length} 个关键词` : `${keywords.length} keyword${keywords.length > 1 ? 's' : ''}`}
-          </span>
-        )}
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--pm-text-muted)', marginTop: 3, marginBottom: 14 }}>
+          {zh ? '添加感兴趣的研究领域，今日精选将自动为你推荐相关论文' : 'Add research topics — Today\'s Picks will recommend matching papers'}
+        </div>
       </div>
 
-      {/* Input */}
-      <div ref={containerRef} className="relative mb-3">
-        <div className="flex gap-2">
+      {/* Input row */}
+      <div ref={containerRef} className="relative" style={{ position: 'relative', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -99,31 +109,61 @@ export default function PreferenceKeywords({ lang, onChange }: Props) {
               setInput((e.target as HTMLInputElement).value);
             }}
             onFocus={() => input && !isComposing && setSuggestions(getSuggestions(input))}
-            placeholder={zh ? '添加感兴趣的研究方向…' : 'Add a research topic…'}
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            placeholder={zh ? '输入关键词，如 diffusion model、agent…' : 'Add a topic, e.g. diffusion model, agent…'}
+            style={{
+              flex: 1, height: 36,
+              padding: '0 12px',
+              border: '1px solid var(--pm-border)',
+              borderRadius: 'var(--pm-r-sm)',
+              fontSize: 14, color: 'var(--pm-text)',
+              background: '#fff', outline: 'none',
+              transition: 'border-color 180ms, box-shadow 180ms',
+            }}
           />
           <button
             onClick={() => add(input)}
             disabled={!input.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              height: 36, padding: '0 16px',
+              borderRadius: 'var(--pm-r-sm)',
+              background: 'var(--pm-blue)', color: '#fff',
+              fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer',
+              opacity: !input.trim() ? 0.4 : 1,
+              transition: 'opacity 180ms, background 180ms',
+            }}
           >
-            {zh ? '添加' : 'Add'}
+            <PlusIcon />{zh ? '添加' : 'Add'}
           </button>
         </div>
 
         {suggestions.length > 0 && (
-          <ul className="absolute z-50 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg overflow-hidden">
+          <ul style={{
+            position: 'absolute', zIndex: 50, left: 0, right: 48,
+            top: 'calc(100% + 4px)',
+            background: '#fff',
+            border: '1px solid var(--pm-border)',
+            borderRadius: 'var(--pm-r-md)',
+            boxShadow: 'var(--pm-sh-md)',
+            overflow: 'hidden',
+            listStyle: 'none', margin: 0, padding: 6,
+          }}>
             {suggestions.map((s, i) => (
               <li key={s.label}>
                 <button
                   onMouseDown={(e) => { e.preventDefault(); add(s.label); }}
                   onMouseEnter={() => setActiveIdx(i)}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                    i === activeIdx ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50'
-                  }`}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '8px 10px', borderRadius: 'var(--pm-r-xs)',
+                    fontSize: 13, textAlign: 'left', border: 'none', cursor: 'pointer',
+                    background: i === activeIdx ? 'var(--pm-blue-light)' : 'transparent',
+                    color: i === activeIdx ? 'var(--pm-blue-dark)' : 'var(--pm-text)',
+                    transition: 'background 120ms',
+                  }}
                 >
                   <span>{s.label}</span>
-                  {s.tag && <span className="text-xs text-slate-400 ml-2 shrink-0">{s.tag}</span>}
+                  {s.tag && <span style={{ fontSize: 11, color: 'var(--pm-text-soft)', marginLeft: 8, flexShrink: 0 }}>{s.tag}</span>}
                 </button>
               </li>
             ))}
@@ -133,27 +173,19 @@ export default function PreferenceKeywords({ lang, onChange }: Props) {
 
       {/* Pills */}
       {keywords.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {keywords.map((kw) => (
-            <span
-              key={kw}
-              className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-3 py-1 text-xs font-medium text-indigo-700"
-            >
+            <span key={kw} className="pm-pill">
               {kw}
-              <button
-                onClick={() => remove(kw)}
-                className="text-indigo-400 hover:text-indigo-700 leading-none"
-              >
-                ×
-              </button>
+              <span className="pm-pill-x" onClick={() => remove(kw)}><XIcon /></span>
             </span>
           ))}
         </div>
       ) : (
-        <p className="text-xs text-slate-400">
+        <p style={{ fontSize: 13, color: 'var(--pm-text-muted)', margin: 0 }}>
           {zh
             ? '还没有偏好关键词，添加后「今日精选」将根据你的兴趣推荐论文'
-            : 'No keywords yet — add some to get personalized recommendations in Today\'s Picks'}
+            : "No keywords yet — add some to personalize Today's Picks"}
         </p>
       )}
     </div>

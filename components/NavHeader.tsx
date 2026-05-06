@@ -2,58 +2,92 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import LangDropdown from '@/components/LangDropdown';
 import { Lang } from '@/lib/gemini';
+import LangDropdown from '@/components/LangDropdown';
 
 interface Props {
   lang: Lang;
   onLangChange: (l: Lang) => void;
-  children?: React.ReactNode; // page-specific controls (e.g. file name, API key button)
+  children?: React.ReactNode;
 }
+
+const BookIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+  </svg>
+);
 
 export default function NavHeader({ lang, onLangChange, children }: Props) {
   const pathname = usePathname();
 
-  const navLink = (href: string, labelZh: string, labelEn: string) => {
-    const active = pathname === href || pathname.startsWith(href + '/');
-    return (
-      <Link
-        href={href}
-        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-          active
-            ? 'bg-indigo-50 text-indigo-700'
-            : 'text-slate-600 hover:bg-slate-100'
-        }`}
-      >
-        {lang === 'zh' ? labelZh : labelEn}
-      </Link>
-    );
-  };
+  const links = [
+    { href: '/tracker', zh: '追踪', en: 'Track' },
+    { href: '/analyze', zh: '解析', en: 'Analyze' },
+    { href: '/history', zh: '历史', en: 'History' },
+  ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur-sm shrink-0">
-      <div className="px-6 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <span className="text-lg">📚</span>
-            <span className="font-semibold text-slate-900">
-              PaperMind
-            </span>
-          </Link>
-          <span className="hidden sm:inline text-xs text-slate-400 border border-slate-200 rounded px-1.5 py-0.5">
-            CS / AI
-          </span>
-          <div className="flex items-center gap-1 ml-2">
-            {navLink('/tracker', '追踪', 'Track')}
-            {navLink('/analyze', '解析', 'Analyze')}
-            {navLink('/history', '历史', 'History')}
-          </div>
-        </div>
+    <header
+      className="sticky top-0 z-40 shrink-0"
+      style={{
+        height: 56,
+        background: 'rgba(255,255,255,0.92)',
+        backdropFilter: 'saturate(140%) blur(8px)',
+        WebkitBackdropFilter: 'saturate(140%) blur(8px)',
+        borderBottom: '1px solid var(--pm-border)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 28px',
+        position: 'sticky',
+        gap: 0,
+      }}
+    >
+      {/* Logo */}
+      <Link
+        href="/"
+        style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}
+      >
+        <span className="pm-nav-logo-mark">
+          <BookIcon />
+        </span>
+        <span style={{ fontWeight: 700, color: 'var(--pm-blue)', fontSize: 16, letterSpacing: '-0.01em' }}>
+          PaperMind
+        </span>
+      </Link>
 
-        <div className="flex items-center gap-3">
-          {children}
-          <LangDropdown lang={lang} onChange={onLangChange} />
-        </div>
+      {/* Nav links */}
+      <div style={{ display: 'flex', gap: 2, marginLeft: 32, flex: 1 }}>
+        {links.map(({ href, zh, en }) => {
+          const active = pathname === href || pathname.startsWith(href + '/');
+          return (
+            <Link
+              key={href}
+              href={href}
+              style={{
+                padding: '0 14px',
+                height: 56,
+                lineHeight: '56px',
+                color: active ? 'var(--pm-blue)' : 'var(--pm-text-mid)',
+                fontSize: 14,
+                fontWeight: active ? 600 : 500,
+                position: 'relative',
+                textDecoration: 'none',
+                transition: 'color 180ms',
+                display: 'inline-block',
+              }}
+            >
+              {lang === 'zh' ? zh : en}
+              {active && <span className="pm-nav-link-active-bar" />}
+            </Link>
+          );
+        })}
+      </div>
+
+      {/* Right: extra children + lang toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {children}
+        <LangDropdown lang={lang} onChange={onLangChange} />
       </div>
     </header>
   );

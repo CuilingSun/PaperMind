@@ -40,11 +40,20 @@ function groupByDate(entries: HistoryEntry[], lang: Lang): { label: string; item
   return Object.entries(groups).map(([label, items]) => ({ label, items }));
 }
 
+const SparkleIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l1.9 5.5L19 10l-5.1 1.5L12 17l-1.9-5.5L5 10l5.1-1.5z"/>
+  </svg>
+);
+
+const ExtLinkIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+  </svg>
+);
+
 function HistoryCard({
-  entry,
-  lang,
-  onRemove,
-  onReanalyze,
+  entry, lang, onRemove, onReanalyze,
 }: {
   entry: HistoryEntry;
   lang: Lang;
@@ -61,107 +70,156 @@ function HistoryCard({
     : null;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow group relative">
+    <div className="pm-history-card" style={{ marginBottom: 12 }}>
+      {/* Remove button */}
       <button
         onClick={() => onRemove(entry.id)}
-        className="absolute top-3 right-3 text-slate-300 hover:text-red-500 transition-colors text-lg leading-none opacity-0 group-hover:opacity-100 z-10"
         title={zh ? '删除记录' : 'Remove'}
+        style={{
+          position: 'absolute', top: 12, right: 12,
+          width: 24, height: 24, borderRadius: '50%',
+          background: 'none', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--pm-text-soft)', fontSize: 16, lineHeight: 1,
+          opacity: 0, transition: 'opacity 150ms, color 150ms',
+        }}
+        onMouseEnter={(e) => {
+          (e.target as HTMLButtonElement).style.opacity = '1';
+          (e.target as HTMLButtonElement).style.color = 'var(--pm-error)';
+        }}
+        onMouseLeave={(e) => {
+          (e.target as HTMLButtonElement).style.opacity = '0';
+          (e.target as HTMLButtonElement).style.color = 'var(--pm-text-soft)';
+        }}
+        className="pm-history-card-remove"
       >
         ×
       </button>
 
-      <div className="px-5 py-4 pr-10">
-        <div className="flex items-start gap-2">
-          <span className="text-base shrink-0 mt-0.5">
-            {entry.source === 'arxiv' ? '📄' : '📁'}
-          </span>
-          <h3 className="font-semibold text-slate-900 text-sm leading-snug">
-            {entry.title}
-          </h3>
-        </div>
+      {/* Title row */}
+      <div style={{ display: 'flex', gap: 8, paddingRight: 28, marginBottom: 6 }}>
+        <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>
+          {entry.source === 'arxiv' ? '📄' : '📁'}
+        </span>
+        <h3 style={{
+          fontSize: 14, fontWeight: 600,
+          color: 'var(--pm-blue)',
+          lineHeight: 1.45, margin: 0,
+          letterSpacing: '-0.005em', cursor: 'pointer',
+        }}
+          onClick={() => onReanalyze?.(entry)}
+        >
+          {entry.title}
+        </h3>
+      </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap mt-1.5 ml-6">
-          {authorsDisplay && <span>{authorsDisplay}</span>}
-          {authorsDisplay && entry.published && <span>·</span>}
-          {entry.published && <span>{entry.published}</span>}
-          {entry.absUrl && (
-            <>
-              <span>·</span>
-              <a
-                href={entry.absUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-0.5"
-              >
-                arXiv ↗
-              </a>
-            </>
-          )}
-          <span>·</span>
-          <span className="text-slate-400">
-            {zh ? '解析于 ' : 'Analyzed '}
-            {new Date(entry.analyzedAt).toLocaleTimeString(zh ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        </div>
-
-        {entry.summary && (
+      {/* Meta */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+        fontSize: 12.5, color: 'var(--pm-text-muted)', marginLeft: 22, marginBottom: 6,
+      }}>
+        {authorsDisplay && <span>{authorsDisplay}</span>}
+        {authorsDisplay && entry.published && <span style={{ color: 'var(--pm-text-soft)' }}>·</span>}
+        {entry.published && <span>{entry.published}</span>}
+        {entry.absUrl && (
           <>
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className="mt-3 ml-6 text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 transition-colors"
+            <span style={{ color: 'var(--pm-text-soft)' }}>·</span>
+            <a
+              href={entry.absUrl} target="_blank" rel="noopener noreferrer"
+              style={{ color: 'var(--pm-blue)', display: 'inline-flex', alignItems: 'center', gap: 3, textDecoration: 'none', fontWeight: 500 }}
             >
-              <svg
-                className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-              {expanded ? (zh ? '收起摘要' : 'Collapse') : (zh ? '展开摘要' : 'Show abstract')}
-            </button>
-
-            {expanded && (
-              <div className="mt-3 ml-6 border-t border-slate-100 pt-3">
-                <p className="text-xs text-slate-600 leading-relaxed">{entry.summary}</p>
-                {onReanalyze && (
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      onClick={() => onReanalyze(entry)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
-                    >
-                      {zh ? '深度解析' : 'Deep analysis'}
-                      <span>→</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+              arXiv <ExtLinkIcon />
+            </a>
           </>
         )}
-
-        {!entry.summary && onReanalyze && entry.source === 'arxiv' && (
-          <div className="mt-2 ml-6">
-            <button
-              onClick={() => onReanalyze(entry)}
-              className="text-xs text-slate-500 hover:text-indigo-600 transition-colors"
-            >
-              {zh ? '再次解析' : 'Re-analyze'}
-            </button>
-          </div>
+        {entry.source === 'upload' && (
+          <>
+            <span style={{ color: 'var(--pm-text-soft)' }}>·</span>
+            <span className="pm-badge pm-badge-pdf">PDF</span>
+          </>
         )}
+        <span style={{ color: 'var(--pm-text-soft)' }}>·</span>
+        <span style={{ color: 'var(--pm-text-soft)' }}>
+          {zh ? '解析于 ' : 'Analyzed '}
+          {new Date(entry.analyzedAt).toLocaleTimeString(zh ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+        </span>
       </div>
+
+      {/* Abstract toggle */}
+      {entry.summary && (
+        <>
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{
+              marginLeft: 22, fontSize: 12.5, color: 'var(--pm-blue)',
+              background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
+              fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <svg
+              width="12" height="12" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5"
+              style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 200ms' }}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+            {expanded ? (zh ? '收起摘要' : 'Collapse') : (zh ? '展开摘要' : 'Show abstract')}
+          </button>
+
+          {expanded && (
+            <div style={{
+              marginLeft: 22, marginTop: 10,
+              borderTop: '1px solid var(--pm-divider)', paddingTop: 10,
+            }}>
+              <p style={{ fontSize: 13, color: 'var(--pm-text-mid)', lineHeight: 1.65, margin: '0 0 12px' }}>
+                {entry.summary}
+              </p>
+              {onReanalyze && entry.source === 'arxiv' && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => onReanalyze(entry)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      height: 32, padding: '0 14px',
+                      borderRadius: 'var(--pm-r-sm)',
+                      background: 'var(--pm-blue)', color: '#fff',
+                      fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
+                      boxShadow: '0 1px 2px rgba(12,68,124,0.25)',
+                    }}
+                  >
+                    <SparkleIcon />
+                    {zh ? '深度解析' : 'Deep analysis'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {!entry.summary && onReanalyze && entry.source === 'arxiv' && (
+        <button
+          onClick={() => onReanalyze(entry)}
+          style={{
+            marginLeft: 22, fontSize: 12.5, color: 'var(--pm-blue)',
+            background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500,
+          }}
+        >
+          {zh ? '再次解析 →' : 'Re-analyze →'}
+        </button>
+      )}
     </div>
   );
 }
 
+// Add hover handler via CSS injection for the remove button
+const hoverStyle = `
+  .pm-history-card:hover .pm-history-card-remove { opacity: 1 !important; }
+`;
+
 export default function HistoryList({
-  entries,
-  lang,
-  onRemove,
-  onClear,
-  onReanalyze,
-  maxItems,
-  showViewAll,
-  hideHeader,
+  entries, lang, onRemove, onClear, onReanalyze,
+  maxItems, showViewAll, hideHeader,
 }: Props) {
   const zh = lang === 'zh';
   const displayed = maxItems ? entries.slice(0, maxItems) : entries;
@@ -170,15 +228,17 @@ export default function HistoryList({
   if (entries.length === 0) return null;
 
   return (
-    <div className="space-y-4">
+    <div>
+      <style>{hoverStyle}</style>
+
       {!hideHeader && (
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700">
-            {zh ? '最近解析' : 'Recent analyses'}
-          </h3>
-          <div className="flex items-center gap-3">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--pm-text)', letterSpacing: '-0.005em' }}>
+            {zh ? '最近解析' : 'Recent Analyses'}
+          </span>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             {showViewAll && entries.length > (maxItems ?? 0) && (
-              <a href="/history" className="text-xs text-indigo-600 hover:text-indigo-800">
+              <a href="/history" style={{ fontSize: 13, color: 'var(--pm-blue)', textDecoration: 'none', fontWeight: 500 }}>
                 {zh ? '查看全部 →' : 'View all →'}
               </a>
             )}
@@ -187,7 +247,11 @@ export default function HistoryList({
                 onClick={() => {
                   if (confirm(zh ? '确定清空所有历史记录？' : 'Clear all history?')) onClear();
                 }}
-                className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+                style={{
+                  fontSize: 12, color: 'var(--pm-text-muted)', background: 'none', border: 'none',
+                  cursor: 'pointer', padding: '4px 8px', borderRadius: 'var(--pm-r-xs)',
+                  transition: 'color 150ms',
+                }}
               >
                 🗑 {zh ? '清空历史' : 'Clear all'}
               </button>
@@ -197,22 +261,23 @@ export default function HistoryList({
       )}
 
       {grouped.map(({ label, items }) => (
-        <div key={label}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">{label}</span>
-            <div className="flex-1 h-px bg-slate-100" />
+        <div key={label} style={{ marginBottom: 24 }}>
+          <div style={{
+            fontSize: 12, color: 'var(--pm-text-muted)', fontWeight: 600,
+            letterSpacing: '0.04em', textTransform: 'uppercase',
+            paddingBottom: 8, borderBottom: '1px solid var(--pm-border)', marginBottom: 10,
+          }}>
+            {label}
           </div>
-          <div className="space-y-3">
-            {items.map((entry) => (
-              <HistoryCard
-                key={entry.id}
-                entry={entry}
-                lang={lang}
-                onRemove={onRemove}
-                onReanalyze={onReanalyze}
-              />
-            ))}
-          </div>
+          {items.map((entry) => (
+            <HistoryCard
+              key={entry.id}
+              entry={entry}
+              lang={lang}
+              onRemove={onRemove}
+              onReanalyze={onReanalyze}
+            />
+          ))}
         </div>
       ))}
     </div>
