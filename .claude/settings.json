@@ -30,7 +30,8 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'OK: {len\\(d\\)} papers, first={d[0][\\\\\"title\\\\\"][:50]}'\\)\")",
       "WebFetch(domain:api.anthropic.com)",
       "Bash(mkdir -p papermind_design)",
-      "Bash(tar -xf papermind_design.html -C papermind_design)"
+      "Bash(tar -xf papermind_design.html -C papermind_design)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); deps=d.get\\('dependencies',{}\\); [print\\(f'{k}: {v}'\\) for k,v in deps.items\\(\\)]\")"
     ],
     "additionalDirectories": [
       "/private/tmp",
