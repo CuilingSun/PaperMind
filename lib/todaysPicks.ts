@@ -8,7 +8,7 @@ import {
 const ARXIV_CATEGORY_RE = /^(cs\.[a-z]{2}|stat\.[a-z]{2}|eess\.[a-z]{2}|q-bio\.[a-z]{2})$/i;
 
 const DOMAIN_PRIORITY = ['cs.CL', 'cs.AI', 'cs.CV', 'cs.LG', 'cs.RO', 'stat.ML', 'cs.IR', 'cs.HC'] as const;
-export const DEFAULT_MIXED_PICK_DOMAINS = ['cs.AI', 'cs.CL', 'cs.CV', 'cs.LG', 'cs.RO'] as const;
+export const DEFAULT_MIXED_PICK_DOMAINS = ['cs.AI', 'cs.CL', 'cs.CV'] as const;
 
 const DOMAIN_LABELS: Record<string, string> = {
   'cs.CL': 'NLP / Language',

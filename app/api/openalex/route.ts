@@ -19,28 +19,31 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const institutionIds = sp.get('institutionIds') ?? '';
   const keywords       = sp.get('keywords') ?? '';
+  const title          = sp.get('title')?.trim() ?? '';
   const days = Math.min(parseInt(sp.get('days') || '14', 10), 60);
   const n    = Math.min(parseInt(sp.get('n')    || '20', 10), 100);
 
   const today = new Date().toISOString().slice(0, 10);
-  const filterParts: string[] = [
-    `from_publication_date:${daysAgo(days)}`,
-    `to_publication_date:${today}`,
-  ];
+  const filterParts: string[] = [];
+  if (days > 0) {
+    filterParts.push(`from_publication_date:${daysAgo(days)}`);
+    filterParts.push(`to_publication_date:${today}`);
+  }
   if (institutionIds) {
     // IDs are plain alphanumeric — no encoding needed; | = OR within field
     const ids = institutionIds.split('|').map((i) => i.trim()).filter(Boolean).join('|');
     filterParts.push(`institutions.id:${ids}`);
   }
 
-  const selectFields = 'id,title,publication_date,authorships,abstract_inverted_index,ids,open_access';
-  const searchParam  = keywords
-    ? `&search=${encodeURIComponent(keywords.replace(/\|/g, ' OR '))}`
+  const selectFields = 'id,title,publication_date,authorships,abstract_inverted_index,ids,open_access,cited_by_count';
+  const searchValue = title || keywords.replace(/\|/g, ' OR ');
+  const searchParam = searchValue
+    ? `&search=${encodeURIComponent(searchValue)}`
     : '';
 
   const url =
     `https://api.openalex.org/works` +
-    `?filter=${filterParts.join(',')}` +
+    (filterParts.length > 0 ? `?filter=${filterParts.join(',')}` : '?') +
     `&sort=publication_date:desc` +
     `&per_page=${n}` +
     `&select=${selectFields}` +
@@ -106,6 +109,7 @@ export async function GET(req: NextRequest) {
       summary: reconstructAbstract(w.abstract_inverted_index),
       pdfUrl: arxivId ? `https://arxiv.org/pdf/${arxivId}` : (w.open_access?.oa_url ?? ''),
       absUrl: arxivId ? `https://arxiv.org/abs/${arxivId}` : w.id,
+      citedByCount: w.cited_by_count ?? 0,
     };
   });
 

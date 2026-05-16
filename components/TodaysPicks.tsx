@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArxivPaper, searchArxivByCategory, searchInstitutionPapers } from '@/lib/arxiv';
+import PaperCard from '@/components/PaperCard';
 import { PrestigeSignal } from '@/lib/eliteFilter';
 import { Lang } from '@/lib/gemini';
 import {
@@ -13,7 +14,8 @@ import {
   resolvePrestigeSignals,
 } from '@/lib/todaysPicks';
 
-const CACHE_KEY = 'todays-picks-cache-v10';
+const CACHE_KEY = 'todays-picks-cache-v14';
+const PAGE_SIZE = 6;
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 interface ScoredPaper extends ArxivPaper {
@@ -34,6 +36,7 @@ interface Props {
   keywords: string[];
   lang: Lang;
   onAnalyze: (paper: ArxivPaper) => void;
+  listView?: boolean;
 }
 
 function readCache(cacheKey: string): ScoredPaper[] | null {
@@ -87,16 +90,21 @@ const ChevRight = ({ size = 11 }: { size?: number }) => (
   </svg>
 );
 
-export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
-  const [papers, setPapers] = useState<ScoredPaper[]>([]);
+export default function TodaysPicks({ keywords, lang, onAnalyze, listView = false }: Props) {
+  const [pool, setPool] = useState<ScoredPaper[]>([]);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retryCount, setRetryCount] = useState(0);
+  const [isKeywordFallback, setIsKeywordFallback] = useState(false);
   const zh = lang === 'zh';
+
+  const papers = pool.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(pool.length / PAGE_SIZE);
 
   const activeKeywords = getActiveTodayPickKeywords(keywords);
   const hasTextKeywords = activeKeywords.length > 0;
-  const resolvedDomains = resolvePickDomains(keywords);
+  const resolvedDomains = useMemo(() => resolvePickDomains(keywords), [keywords]);
   const isMixedDefaultMode = keywords.length === 0;
   const resolvedDomain = resolvedDomains[0];
   const cacheKey = `${resolvedDomains.join('|')}::${activeKeywords.join('|')}::tiered-prestige-v2`;
@@ -105,10 +113,13 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
     let cancelled = false;
 
     const load = async () => {
+      setPage(0);
+      setIsKeywordFallback(false);
+
       const cached = readCache(cacheKey);
       if (cached && cached.length > 0) {
         setError('');
-        setPapers(cached);
+        setPool(cached);
         setLoading(false);
         return;
       }
@@ -117,33 +128,43 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
       setError('');
 
       try {
-        const [domainResults, institutionPapers] = await Promise.all([
-          Promise.all(resolvedDomains.map((domain) => searchArxivByCategory(domain, 60))),
-          searchInstitutionPapers(100),
+        // Stagger domain requests 1 s apart to avoid arXiv rate limits; use allSettled so
+        // a single failed domain doesn't discard results from the others.
+        const stagger = (i: number) => new Promise<void>((r) => setTimeout(r, i * 1000));
+        const [domainSettled, institutionPapers] = await Promise.all([
+          Promise.allSettled(
+            resolvedDomains.map((domain, i) =>
+              stagger(i).then(() => searchArxivByCategory(domain, 40))
+            )
+          ),
+          searchInstitutionPapers(50),
         ]);
         if (cancelled) return;
 
-        const domainCandidates = domainResults.flatMap((papers, index) =>
-          papers.filter((paper) => paper.primaryCategory === resolvedDomains[index])
+        const domainResultArrays = domainSettled
+          .filter((r): r is PromiseFulfilledResult<ArxivPaper[]> => r.status === 'fulfilled')
+          .map((r) => r.value);
+
+        const domainSet = new Set(resolvedDomains);
+        const domainCandidates = domainResultArrays.flat().filter(
+          (paper) =>
+            (!paper.primaryCategory || domainSet.has(paper.primaryCategory)) &&
+            paper.authors.length >= 2
         );
         if (domainCandidates.length === 0) {
           setError('');
-          setPapers([]);
+          setPool([]);
           return;
         }
 
-        const keywordFiltered = domainCandidates
-          .map((paper) => ({
-            ...paper,
-            matchedKeywords: matchPaperKeywords(paper, keywords),
-          }))
-          .filter((paper) => !hasTextKeywords || paper.matchedKeywords.length > 0);
-
-        if (keywordFiltered.length === 0) {
-          setError('');
-          setPapers([]);
-          return;
-        }
+        const withKeywords = domainCandidates.map((paper) => ({
+          ...paper,
+          matchedKeywords: matchPaperKeywords(paper, keywords),
+        }));
+        const keywordMatched = withKeywords.filter((p) => p.matchedKeywords.length > 0);
+        const usingFallback = hasTextKeywords && keywordMatched.length === 0;
+        const keywordFiltered = usingFallback ? withKeywords : hasTextKeywords ? keywordMatched : withKeywords;
+        setIsKeywordFallback(usingFallback);
 
         const institutionMap = new Map(
           institutionPapers
@@ -180,35 +201,46 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
             };
           });
 
-        const recentPool = scoredPool.filter((paper) => isRecent(paper.published, 7));
-        const activePool = recentPool.length > 0 ? recentPool : scoredPool;
+        // Prefer 3-day window when it has ≥2 prestige papers; otherwise expand to 7 days.
+        const recent3d = scoredPool.filter((p) => isRecent(p.published, 3));
+        const recent7d = scoredPool.filter((p) => isRecent(p.published, 7));
+        const enough3d = recent3d.filter((p) => p.recommendationTier === 'prestige').length >= 2;
+        const activePool = enough3d ? recent3d : recent7d.length > 0 ? recent7d : scoredPool;
 
         let next: ScoredPaper[];
         if (isMixedDefaultMode) {
-          const byDomain = new Map<string, ScoredPaper[]>();
-          resolvedDomains.forEach((domain) => byDomain.set(domain, []));
-          activePool
-            .sort(sortPapers)
-            .forEach((paper) => {
-              const bucket = byDomain.get(paper.resolvedDomain) ?? [];
-              bucket.push(paper);
-              byDomain.set(paper.resolvedDomain, bucket);
-            });
+          // Separate into two tier-specific domain maps, each sorted prestige-first within domain.
+          const prestigeByDomain = new Map<string, ScoredPaper[]>();
+          const fallbackByDomain = new Map<string, ScoredPaper[]>();
+          resolvedDomains.forEach((d) => { prestigeByDomain.set(d, []); fallbackByDomain.set(d, []); });
 
-          const mixed: ScoredPaper[] = [];
-          let added = true;
-          while (mixed.length < 6 && added) {
-            added = false;
-            for (const domain of resolvedDomains) {
-              const bucket = byDomain.get(domain) ?? [];
-              const nextPaper = bucket.shift();
-              if (!nextPaper) continue;
-              mixed.push(nextPaper);
-              added = true;
-              if (mixed.length >= 6) break;
+          activePool.sort(sortPapers).forEach((paper) => {
+            const map = paper.recommendationTier === 'prestige' ? prestigeByDomain : fallbackByDomain;
+            const bucket = map.get(paper.resolvedDomain) ?? [];
+            bucket.push(paper);
+            map.set(paper.resolvedDomain, bucket);
+          });
+
+          const roundRobin = (byDomain: Map<string, ScoredPaper[]>, limit: number): ScoredPaper[] => {
+            const result: ScoredPaper[] = [];
+            let hasMore = true;
+            while (hasMore && result.length < limit) {
+              hasMore = false;
+              for (const domain of resolvedDomains) {
+                const bucket = byDomain.get(domain) ?? [];
+                const paper = bucket.shift();
+                if (!paper) continue;
+                result.push(paper);
+                hasMore = true;
+              }
             }
-          }
-          next = mixed;
+            return result;
+          };
+
+          // All prestige papers first (domain-balanced), then fallback papers.
+          const prestigePart = roundRobin(prestigeByDomain, 30);
+          const fallbackPart = roundRobin(fallbackByDomain, 30 - prestigePart.length);
+          next = [...prestigePart, ...fallbackPart];
         } else {
           const prestigePapers = activePool
             .filter((paper) => paper.recommendationTier === 'prestige')
@@ -218,10 +250,10 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
             .filter((paper) => paper.recommendationTier === 'fallback')
             .sort(sortPapers);
 
-          next = [...prestigePapers, ...fallbackPapers].slice(0, 6);
+          next = [...prestigePapers, ...fallbackPapers].slice(0, 30);
         }
         writeCache(cacheKey, next);
-        if (!cancelled) setPapers(next);
+        if (!cancelled) setPool(next);
       } catch (err) {
         if (!cancelled) {
           const msg = err instanceof Error ? err.message : 'unknown error';
@@ -234,7 +266,7 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
 
     load();
     return () => { cancelled = true; };
-  }, [cacheKey, hasTextKeywords, isMixedDefaultMode, keywords, resolvedDomain, resolvedDomains, retryCount]);
+  }, [cacheKey, hasTextKeywords, isMixedDefaultMode, keywords, resolvedDomain, retryCount]);
 
   const hasFallback = papers.some((paper) => paper.recommendationTier === 'fallback');
 
@@ -301,11 +333,19 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
       </p>
 
       {loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="pm-skel" style={{ height: 168, borderRadius: 'var(--pm-r-md)', animationDelay: `${i * 0.15}s` }} />
-          ))}
-        </div>
+        listView ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="pm-skel" style={{ height: 120, borderRadius: 'var(--pm-r-md)', animationDelay: `${i * 0.15}s` }} />
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="pm-skel" style={{ height: 168, borderRadius: 'var(--pm-r-md)', animationDelay: `${i * 0.15}s` }} />
+            ))}
+          </div>
+        )
       )}
 
       {!loading && error && (
@@ -334,7 +374,22 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
 
       {!loading && !error && papers.length > 0 && (
         <>
-          {hasFallback && (
+          {isKeywordFallback && (
+            <div style={{
+              marginBottom: 12,
+              borderRadius: 'var(--pm-r-sm)',
+              background: 'rgba(186,117,23,0.07)',
+              border: '1px solid rgba(186,117,23,0.18)',
+              padding: '8px 12px',
+              fontSize: 12,
+              color: 'var(--pm-text-mid)',
+            }}>
+              {zh
+                ? '近期暂无关键词匹配论文，显示当前领域热门'
+                : 'No recent keyword matches — showing top papers from this field instead'}
+            </div>
+          )}
+          {!listView && hasFallback && (
             <div style={{
               marginBottom: 12,
               borderRadius: 'var(--pm-r-sm)',
@@ -349,11 +404,44 @@ export default function TodaysPicks({ keywords, lang, onAnalyze }: Props) {
                 : 'Some results are same-field backfill recommendations'}
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
-            {papers.map((paper) => (
-              <PickCard key={paper.id} paper={paper} zh={zh} onAnalyze={onAnalyze} />
-            ))}
-          </div>
+          {listView ? (
+            <div>
+              {papers.map((paper) => (
+                <PaperCard key={paper.id} paper={paper} lang={lang} onAnalyze={onAnalyze} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+              {papers.map((paper) => (
+                <PickCard key={paper.id} paper={paper} zh={zh} onAnalyze={onAnalyze} />
+              ))}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 16 }}>
+              <button
+                onClick={() => setPage((p) => (p + 1) % totalPages)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  height: 32, padding: '0 14px',
+                  borderRadius: 'var(--pm-r-sm)',
+                  border: '1px solid var(--pm-border)',
+                  background: 'var(--pm-bg-card)',
+                  color: 'var(--pm-text-mid)',
+                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/>
+                </svg>
+                {zh ? '换一批' : 'Show more'}
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--pm-text-muted)' }}>
+                {page + 1} / {totalPages}
+              </span>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -376,7 +464,7 @@ function PickCard({
   return (
     <div className="pm-pick-card">
       <span className="pm-pick-stamp">
-        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pm-teal)', display: 'inline-block' }} />
+        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pm-blue)', display: 'inline-block' }} />
         {paper.recommendationTier === 'prestige'
           ? (zh ? '优选' : 'Priority')
           : (zh ? '补充' : 'Backfill')}
@@ -420,12 +508,23 @@ function PickCard({
       </div>
 
       <div style={{
-        fontSize: 12, color: 'var(--pm-text-muted)', marginBottom: 4, lineHeight: 1.5,
+        fontSize: 12, color: 'var(--pm-text-muted)', marginBottom: 3, lineHeight: 1.5,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>
         {authorsDisplay}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--pm-text-soft)', marginBottom: 10 }}>{paper.published}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--pm-text-soft)' }}>{paper.published}</span>
+        {(paper.citedByCount ?? 0) > 0 && (
+          <span style={{
+            fontSize: 11, color: 'var(--pm-text-muted)',
+            display: 'inline-flex', alignItems: 'center', gap: 2,
+          }}>
+            <span style={{ opacity: 0.5 }}>·</span>
+            <span>↑ {paper.citedByCount?.toLocaleString()}</span>
+          </span>
+        )}
+      </div>
 
       <div className="pm-pick-actions">
         <a
@@ -447,9 +546,9 @@ function PickCard({
               display: 'inline-flex', alignItems: 'center', gap: 5,
               height: 30, padding: '0 12px',
               borderRadius: 'var(--pm-r-sm)',
-              background: 'linear-gradient(135deg, var(--pm-teal-mid) 0%, var(--pm-teal-dark) 100%)',
+              background: 'var(--pm-blue)',
               color: '#fff', fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(8,80,65,0.25)',
+              boxShadow: '0 1px 2px rgba(24,95,165,0.25)',
             }}
           >
             <SparkleIcon size={12} />

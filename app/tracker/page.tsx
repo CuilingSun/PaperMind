@@ -5,7 +5,7 @@ import NavHeader from '@/components/NavHeader';
 import KeywordManager from '@/components/KeywordManager';
 import PaperCard from '@/components/PaperCard';
 import TodaysPicks from '@/components/TodaysPicks';
-import { searchArxivCombined, ArxivPaper, TrackedSearch } from '@/lib/arxiv';
+import { enrichArxivPapersWithSemanticScholar, searchArxivCombined, ArxivPaper, TrackedSearch } from '@/lib/arxiv';
 import { getPreferenceKeywords } from '@/lib/preferenceKeywords';
 import { Lang } from '@/lib/gemini';
 
@@ -22,6 +22,7 @@ export default function TrackerPage() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
   const [prefKeywords, setPrefKeywords] = useState<string[]>([]);
+  const [visibleCount, setVisibleCount] = useState(20);
 
   useEffect(() => {
     setPrefKeywords(getPreferenceKeywords());
@@ -31,9 +32,11 @@ export default function TrackerPage() {
     if (list.length === 0) { setPapers([]); return; }
     setLoading(true);
     setError('');
+    setVisibleCount(20);
     try {
-      const results = await searchArxivCombined(list, 20);
-      setPapers(results);
+      const results = await searchArxivCombined(list, 60);
+      const enriched = await enrichArxivPapersWithSemanticScholar(results);
+      setPapers(enriched);
     } catch {
       setError(lang === 'zh' ? '加载失败，请稍后重试' : 'Failed to load — please try again');
     } finally {
@@ -75,7 +78,7 @@ export default function TrackerPage() {
     <div style={{ height: '100vh', overflow: 'hidden', background: 'var(--pm-bg-page)', display: 'flex', flexDirection: 'column' }}>
       <NavHeader lang={lang} onLangChange={setLang} />
 
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} className="pm-page-tint pm-tint-blue">
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} className="pm-page-tint pm-tint-warm">
         {/* Sticky search bar */}
         <div style={{
           background: 'rgba(255,255,255,0.92)',
@@ -112,7 +115,7 @@ export default function TrackerPage() {
                       : (zh ? '热门 AI/CS 论文 · 每小时更新' : 'Trending AI/CS papers · updated hourly')}
                   </p>
                 </div>
-                <TodaysPicks keywords={prefKeywords} lang={lang} onAnalyze={handleAnalyze} />
+                <TodaysPicks keywords={prefKeywords} lang={lang} onAnalyze={handleAnalyze} listView />
               </>
             )}
 
@@ -148,13 +151,30 @@ export default function TrackerPage() {
             {searches.length > 0 && !loading && !error && papers.length > 0 && (
               <>
                 <div style={{ fontSize: 13, color: 'var(--pm-text-muted)', marginBottom: 16 }}>
-                  {zh ? `找到 ` : 'Found '}
-                  <strong style={{ color: 'var(--pm-text)' }}>{papers.length}</strong>
-                  {zh ? ` 篇论文` : ' papers'}
+                  {zh ? `显示 ` : 'Showing '}
+                  <strong style={{ color: 'var(--pm-text)' }}>{Math.min(visibleCount, papers.length)}</strong>
+                  {zh ? ` / ${papers.length} 篇论文` : ` of ${papers.length} papers`}
                 </div>
-                {papers.map((paper) => (
+                {papers.slice(0, visibleCount).map((paper) => (
                   <PaperCard key={paper.id} paper={paper} lang={lang} onAnalyze={handleAnalyze} />
                 ))}
+                {visibleCount < papers.length && (
+                  <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
+                    <button
+                      onClick={() => setVisibleCount((v) => v + 20)}
+                      style={{
+                        height: 36, padding: '0 24px',
+                        borderRadius: 'var(--pm-r-sm)',
+                        border: '1px solid var(--pm-border)',
+                        background: 'var(--pm-bg-card)',
+                        color: 'var(--pm-text-mid)',
+                        fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                      }}
+                    >
+                      {zh ? `加载更多（还有 ${papers.length - visibleCount} 篇）` : `Load more (${papers.length - visibleCount} remaining)`}
+                    </button>
+                  </div>
+                )}
               </>
             )}
 

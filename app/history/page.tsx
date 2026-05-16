@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Fuse from 'fuse.js';
 import NavHeader from '@/components/NavHeader';
 import HistoryList from '@/components/HistoryList';
 import { getHistory, removeHistory, clearHistory, HistoryEntry } from '@/lib/history';
@@ -15,6 +16,7 @@ const HistoryIcon = () => (
 export default function HistoryPage() {
   const [lang, setLang] = useState<Lang>('zh');
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     setEntries(getHistory());
@@ -41,6 +43,22 @@ export default function HistoryPage() {
     if (entry.report) localStorage.setItem('pending-arxiv-report', JSON.stringify(entry.report));
     window.open('/analyze', '_blank');
   };
+
+  const fuse = useMemo(() => new Fuse(entries, {
+    keys: [
+      { name: 'title', weight: 2 },
+      { name: 'summary', weight: 1 },
+      { name: 'authors', weight: 0.5 },
+      { name: 'report.zh', weight: 0.8 },
+      { name: 'report.en', weight: 0.8 },
+    ],
+    threshold: 0.35,
+    ignoreLocation: true,
+  }), [entries]);
+
+  const filtered = query.trim()
+    ? fuse.search(query.trim()).map((r) => r.item)
+    : entries;
 
   const zh = lang === 'zh';
 
@@ -80,10 +98,44 @@ export default function HistoryPage() {
                   boxShadow: '0 1px 2px rgba(163,45,45,0.25)',
                 }}
               >
-                🗑 {zh ? '清空历史' : 'Clear all'}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                {zh ? '清空历史' : 'Clear all'}
               </button>
             )}
           </div>
+
+          {/* Search bar */}
+          {entries.length > 0 && (
+            <div style={{ marginBottom: 20, position: 'relative' }}>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={zh ? '搜索标题、摘要、分析内容…' : 'Search titles, abstracts, analysis…'}
+                style={{
+                  width: '100%', height: 38, padding: '0 36px 0 12px',
+                  borderRadius: 'var(--pm-r-sm)',
+                  border: '1px solid var(--pm-border)',
+                  background: 'var(--pm-bg-card)',
+                  fontSize: 14, color: 'var(--pm-text)',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery('')}
+                  style={{
+                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--pm-text-muted)', fontSize: 16, lineHeight: 1,
+                    padding: 0,
+                  }}
+                >×</button>
+              )}
+            </div>
+          )}
 
           {entries.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '80px 0' }}>
@@ -123,9 +175,13 @@ export default function HistoryPage() {
                 </a>
               </div>
             </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', fontSize: 13, color: 'var(--pm-text-muted)' }}>
+              {zh ? `未找到与「${query}」相关的记录` : `No records matching "${query}"`}
+            </div>
           ) : (
             <HistoryList
-              entries={entries}
+              entries={filtered}
               lang={lang}
               onRemove={handleRemove}
               onClear={handleClear}

@@ -12,10 +12,29 @@
       "Bash(curl -s http://localhost:3000)",
       "WebFetch(domain:docs.openalex.org)",
       "WebFetch(domain:api.openalex.org)",
-      "WebFetch(domain:developers.openalex.org)"
+      "WebFetch(domain:developers.openalex.org)",
+      "Bash(npx next *)",
+      "Bash(lsof -ti:3000)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" http://localhost:3000/)",
+      "Bash(time curl *)",
+      "Bash(node -e ' *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'Got {len\\(d\\)} papers'\\); [print\\(f'  - {p[\\\\\"title\\\\\"][:60]}'\\) for p in d[:3]]\")",
+      "Bash(curl -s \"http://localhost:3000/api/arxiv?rawQuery=cat%3Acs.AI&sortBy=submittedDate&n=5\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'Papers: {len\\(d\\)} \\(from cache\\)'\\)\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" http://localhost:3000/tracker)",
+      "Bash(curl -s http://localhost:3000/tracker)",
+      "Bash(awk '{print $1, $2, $9}')",
+      "Bash(kill 4851 4872 23406 23427)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'OK: {len\\(d\\)} papers, first={d[0][\\\\\"title\\\\\"][:50]}'\\)\")",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(mkdir -p papermind_design)",
+      "Bash(tar -xf papermind_design.html -C papermind_design)"
     ],
     "additionalDirectories": [
-      "/private/tmp"
+      "/private/tmp",
+      "/tmp"
     ]
   }
 }

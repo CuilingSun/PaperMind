@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { SECTION_KEYS, SECTION_LABELS, SectionKey, Lang } from '@/lib/gemini';
 import { stripFigureJson } from '@/lib/figureParser';
 
@@ -18,6 +20,10 @@ const SECTION_NUMS: Record<SectionKey, number> = {
 
 const FIGURE_RE = /\b(Figure|Fig\.?)\s*(\d+[a-zA-Z]?)/gi;
 
+// Matches numbers followed by a unit — used to highlight key results in table cells.
+const NUM_UNIT_RE = /(\b\d+\.?\d*\s*(?:%|×|x\b|dB|BLEU|ROUGE|CIDEr|FID|IS\b|mAP|mIoU|Acc|FPS|ms\b|GFLOPs|↑|↓|\+\d+|\-\d+))/g;
+
+
 function sanitizeHref(href: string | undefined): string | undefined {
   if (!href) return href;
   const m = href.match(/^(https?:\/\/[a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)/);
@@ -29,6 +35,16 @@ function injectFigureLinks(text: string, figureMap: Map<string, number>): string
     const page = figureMap.get(match.toLowerCase()) ?? 0;
     return `[${match}](fig:${page})`;
   });
+}
+
+// Wraps number+unit patterns inside table rows with a sentinel backtick marker
+// so the code renderer can highlight them without touching normal code blocks.
+const NUM_SENTINEL = '\u{1F4CA}'; // 📊 — unlikely in paper text
+function markTableNumbers(md: string): string {
+  return md.split('\n').map((line) => {
+    if (!line.trim().startsWith('|')) return line;
+    return line.replace(NUM_UNIT_RE, (m) => `\`${NUM_SENTINEL}${m}\``);
+  }).join('\n');
 }
 
 interface Props {
@@ -48,11 +64,12 @@ function MarkdownContent({
   figureMap: Map<string, number>;
   onFigureClick: (page: number) => void;
 }) {
-  const processed = injectFigureLinks(stripFigureJson(content), figureMap);
+  const processed = markTableNumbers(injectFigureLinks(stripFigureJson(content), figureMap));
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
       components={{
         a: ({ href: rawHref, children }) => {
           const href = sanitizeHref(rawHref);
@@ -128,6 +145,18 @@ function MarkdownContent({
         tr: ({ children }) => <tr>{children}</tr>,
         code: ({ children }) => {
           if (typeof children === 'string' && children.includes('"figures"')) return null;
+          // Sentinel-marked number+unit — render as highlight instead of code
+          if (typeof children === 'string' && children.startsWith(NUM_SENTINEL)) {
+            return (
+              <mark style={{
+                background: 'rgba(255,190,0,0.25)', color: 'inherit',
+                padding: '0 2px', borderRadius: 3, fontWeight: 600,
+                fontFamily: 'inherit', fontSize: 'inherit',
+              }}>
+                {children.slice(NUM_SENTINEL.length)}
+              </mark>
+            );
+          }
           return (
             <code style={{
               background: 'var(--pm-bg-soft)', padding: '2px 6px',

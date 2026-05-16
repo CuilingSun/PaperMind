@@ -341,7 +341,7 @@ export default function AnalyzePage() {
       </NavHeader>
 
       {!pdfFile ? (
-        <main className="pm-page-tint pm-tint-purple" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+        <main className="pm-page-tint pm-tint-warm" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
           {analysisError && (
             <div style={{ maxWidth: 720, margin: '0 auto', width: '100%', padding: '20px 24px 0' }}>
               <div style={{

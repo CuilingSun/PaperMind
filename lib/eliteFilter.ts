@@ -55,26 +55,52 @@ export const DEFAULT_AREA_KEYWORDS = [
 
 // Maps substrings found in OpenAlex affiliation display_name → short chip label.
 // Order matters: more specific entries must come before generic ones (e.g. DeepMind before Google).
+// Matching is done with word-boundary regex (see AFFILIATION_LABEL_RE below).
 export const AFFILIATION_LABEL_MAP: [string, string][] = [
-  ['openai',                                  'OpenAI'],
-  ['deepmind',                                'DeepMind'],
-  ['anthropic',                               'Anthropic'],
-  ['allen institute for artificial intelligence', 'AI2'],
-  ['hugging face',                            'Hugging Face'],
-  ['microsoft research',                      'Microsoft Research'],
-  ['google',                                  'Google'],
-  ['stanford',                                'Stanford'],
-  ['massachusetts institute of technology',   'MIT'],
-  ['carnegie mellon',                         'CMU'],
-  ['princeton',                               'Princeton'],
-  ['harvard',                                 'Harvard'],
-  ['university of oxford',                    'Oxford'],
-  ['university of cambridge',                 'Cambridge'],
-  ['eth zurich',                              'ETH Zürich'],
-  ['mila',                                    'Mila'],
-  ['university of toronto',                   'U Toronto'],
-  ['university of washington',                'UW'],
+  // AI labs — most specific first
+  ['openai',                                       'OpenAI'],
+  ['deepmind',                                     'DeepMind'],
+  ['anthropic',                                    'Anthropic'],
+  ['allen institute for artificial intelligence',  'AI2'],
+  ['hugging face',                                 'Hugging Face'],
+  ['microsoft research',                           'Microsoft Research'],
+  ['facebook ai research',                         'Meta AI'],
+  ['meta ai',                                      'Meta AI'],
+  ['facebook',                                     'Meta AI'],
+  ['nvidia research',                              'NVIDIA'],
+  ['nvidia',                                       'NVIDIA'],
+  ['bytedance',                                    'ByteDance'],
+  ['deepseek',                                     'DeepSeek'],
+  ['shanghai artificial intelligence laboratory',  'SHLAB'],
+  ['google',                                       'Google'],
+  // Universities
+  ['tsinghua',                                     'Tsinghua'],
+  ['peking university',                            'PKU'],
+  ['beida',                                        'PKU'],
+  ['stanford',                                     'Stanford'],
+  ['massachusetts institute of technology',        'MIT'],
+  ['carnegie mellon',                              'CMU'],
+  ['princeton',                                    'Princeton'],
+  ['harvard',                                      'Harvard'],
+  ['university of oxford',                         'Oxford'],
+  ['university of cambridge',                      'Cambridge'],
+  ['eth zurich',                                   'ETH Zürich'],
+  ['mila',                                         'Mila'],
+  ['university of toronto',                        'U Toronto'],
+  ['university of washington',                     'UW'],
+  ['new york university',                          'NYU'],
+  ['columbia university',                          'Columbia'],
+  ['national university of singapore',             'NUS'],
+  ['uc berkeley',                                  'UC Berkeley'],
+  ['university of california, berkeley',           'UC Berkeley'],
 ];
+
+// Precomputed word-boundary regexes — prevents substring false matches (e.g. 'mila' hitting 'Milad').
+// Lookbehind/lookahead check that the key is not surrounded by other letters.
+const AFFILIATION_LABEL_RE: [RegExp, string][] = AFFILIATION_LABEL_MAP.map(([key, label]) => [
+  new RegExp(`(?<![a-z])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`),
+  label,
+]);
 
 export interface EliteAuthor {
   display: string;    // shown as chip label
@@ -129,14 +155,14 @@ export function resolveInstitutionLabel(
   paper: ElitePaperLike
 ): string | undefined {
   const allAffs = paper.affiliations.join(' ').toLowerCase();
-  for (const [key, label] of AFFILIATION_LABEL_MAP) {
-    if (allAffs.includes(key)) return label;
+  for (const [re, label] of AFFILIATION_LABEL_RE) {
+    if (re.test(allAffs)) return label;
   }
 
   // Some arXiv papers list the lab/company as an author name instead of an affiliation.
   const authorStr = paper.authors.join(' ').toLowerCase();
-  for (const [key, label] of AFFILIATION_LABEL_MAP) {
-    if (authorStr.includes(key)) return label;
+  for (const [re, label] of AFFILIATION_LABEL_RE) {
+    if (re.test(authorStr)) return label;
   }
 
   return undefined;

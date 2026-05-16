@@ -9,7 +9,9 @@ export interface ArxivPaper {
   summary: string;
   pdfUrl: string;
   absUrl: string;
+  citedByCount?: number;    // from OpenAlex cited_by_count; absent for arXiv-only results
 }
+
 
 export type SortBy = 'submittedDate' | 'relevance';
 
@@ -41,11 +43,25 @@ export function searchLabel(s: TrackedSearch): string {
 
 export async function searchArxivCombined(searches: TrackedSearch[], n = 20): Promise<ArxivPaper[]> {
   if (searches.length === 0) return [];
-  const keywords = searches.map(s => s.keyword).filter(Boolean);
-  const params = new URLSearchParams({ kws: keywords.join('|'), n: String(n) });
-  const res = await fetch(`/api/arxiv?${params.toString()}`);
-  if (!res.ok) throw new Error(`arXiv search failed: ${res.status}`);
-  return res.json();
+
+  // Run each search independently so author / category / year filters all take effect.
+  const settled = await Promise.allSettled(searches.map((s) => searchArxiv(s, n)));
+
+  const seen = new Set<string>();
+  const merged: ArxivPaper[] = [];
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue;
+    for (const paper of result.value) {
+      if (seen.has(paper.id)) continue;
+      seen.add(paper.id);
+      merged.push(paper);
+    }
+  }
+
+  // Sort newest first, cap at n
+  return merged
+    .sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime())
+    .slice(0, n);
 }
 
 export async function searchOpenAlexPicks(userKeywords: string[], n = 30): Promise<ArxivPaper[]> {
@@ -99,12 +115,38 @@ export async function searchInstitutionPapers(n = 100): Promise<ArxivPaper[]> {
   return res.json();
 }
 
+
 export async function searchArxivOr(keywords: string[], n = 20): Promise<ArxivPaper[]> {
   if (keywords.length === 0) return [];
   const params = new URLSearchParams({ kws: keywords.join('|'), join: 'or', sortBy: 'submittedDate', n: String(n) });
   const res = await fetch(`/api/arxiv?${params.toString()}`);
   if (!res.ok) throw new Error(`arXiv search failed: ${res.status}`);
   return res.json();
+}
+
+export async function enrichArxivPapersWithSemanticScholar(papers: ArxivPaper[]): Promise<ArxivPaper[]> {
+  const toEnrich = papers.filter((p) => p.id);
+  if (toEnrich.length === 0) return papers;
+
+  const ids = toEnrich.map((p) => p.id);
+  let s2Map: Record<string, { affiliations: string[]; citationCount?: number }> = {};
+  try {
+    const params = new URLSearchParams({ ids: ids.join('|') });
+    const res = await fetch(`/api/semanticscholar?${params.toString()}`);
+    if (res.ok) s2Map = await res.json();
+  } catch {
+    // fail silently — S2 enrichment is best-effort
+  }
+
+  return papers.map((paper) => {
+    const s2 = s2Map[paper.id];
+    if (!s2) return paper;
+    return {
+      ...paper,
+      affiliations: s2.affiliations.length > 0 ? s2.affiliations : paper.affiliations,
+      citedByCount: s2.citationCount ?? paper.citedByCount,
+    };
+  });
 }
 
 export async function searchArxiv(search: TrackedSearch, n = 20): Promise<ArxivPaper[]> {
